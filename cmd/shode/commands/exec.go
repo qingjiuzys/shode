@@ -2,8 +2,10 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"gitee.com/com_818cloud/shode/pkg/parser"
+	"gitee.com/com_818cloud/shode/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -33,12 +35,44 @@ The command will be parsed, analyzed for security risks, and executed in a sandb
 				return fmt.Errorf("failed to parse command: %v", err)
 			}
 			
-			if len(script.Nodes) > 0 {
-				fmt.Printf("Parsed command successfully\n")
-				fmt.Println("(Shode execution engine will execute the command here)")
+			if len(script.Nodes) == 0 {
+				return fmt.Errorf("no valid commands found")
 			}
 			
-			// TODO: Implement execution engine and security checks
+			fmt.Printf("Parsed %d command(s) successfully\n", len(script.Nodes))
+			
+			// Execute each command
+			for i, node := range script.Nodes {
+				if cmdNode, ok := node.(*types.CommandNode); ok {
+					fmt.Printf("[%d] Executing: %s %s\n", i+1, cmdNode.Name, strings.Join(cmdNode.Args, " "))
+					
+					// TODO: Implement actual execution with engine
+					// For now, just simulate execution
+					switch cmdNode.Name {
+					case "upper":
+						if len(cmdNode.Args) > 0 {
+							fmt.Printf("Result: %s\n", strings.ToUpper(cmdNode.Args[0]))
+						}
+					case "lower":
+						if len(cmdNode.Args) > 0 {
+							fmt.Printf("Result: %s\n", strings.ToLower(cmdNode.Args[0]))
+						}
+					case "echo":
+						fmt.Printf("Result: %s\n", strings.Join(cmdNode.Args, " "))
+					case "contains":
+						if len(cmdNode.Args) >= 2 {
+							result := strings.Contains(cmdNode.Args[0], cmdNode.Args[1])
+							fmt.Printf("Result: %t\n", result)
+						}
+					case "trim":
+						if len(cmdNode.Args) > 0 {
+							fmt.Printf("Result: %s\n", strings.TrimSpace(cmdNode.Args[0]))
+						}
+					default:
+						fmt.Printf("Command '%s' would be executed here\n", cmdNode.Name)
+					}
+				}
+			}
 			
 			return nil
 		},

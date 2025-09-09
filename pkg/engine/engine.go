@@ -241,27 +241,7 @@ func (ee *ExecutionEngine) decideExecutionMode(cmd *types.CommandNode) Execution
 
 // isStdLibFunction checks if a function exists in standard library
 func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
-	// Map of standard library functions
-	stdlibFunctions := map[string]bool{
-		"Print":      true,
-		"Println":    true,
-		"Error":      true,
-		"Errorln":    true,
-		"ReadFile":   true,
-		"WriteFile":  true,
-		"ListFiles":  true,
-		"FileExists": true,
-		"Contains":   true,
-		"Replace":    true,
-		"ToUpper":    true,
-		"ToLower":    true,
-		"Trim":       true,
-		"GetEnv":     true,
-		"SetEnv":     true,
-		"WorkingDir": true,
-		"ChangeDir":  true,
-	}
-	return stdlibFunctions[funcName]
+	return ee.stdlib.HasFunction(funcName)
 }
 
 // executeInterpreted executes a command using the interpreter (built-in functions)
@@ -287,114 +267,36 @@ func (ee *ExecutionEngine) executeInterpreted(ctx context.Context, cmd *types.Co
 
 // executeStdLibFunction executes a standard library function
 func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string) (string, error) {
-	switch funcName {
-	case "Print":
-		if len(args) > 0 {
-			ee.stdlib.Print(args[0])
-			return args[0], nil
-		}
+	// Convert string arguments to interface{} for the executor
+	interfaceArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		interfaceArgs[i] = arg
+	}
+
+	// Use the standard library's ExecuteFunction method
+	result, err := ee.stdlib.ExecuteFunction(funcName, interfaceArgs...)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert result to string
+	switch v := result.(type) {
+	case string:
+		return v, nil
+	case []string:
+		return strings.Join(v, "\n"), nil
+	case bool:
+		return fmt.Sprintf("%v", v), nil
+	case int:
+		return fmt.Sprintf("%d", v), nil
+	case int64:
+		return fmt.Sprintf("%d", v), nil
+	case time.Time:
+		return v.Format(time.RFC3339), nil
+	case nil:
 		return "", nil
-	case "Println":
-		if len(args) > 0 {
-			ee.stdlib.Println(args[0])
-			return args[0], nil
-		}
-		ee.stdlib.Println("")
-		return "", nil
-	case "Error":
-		if len(args) > 0 {
-			ee.stdlib.Error(args[0])
-			return args[0], nil
-		}
-		return "", nil
-	case "Errorln":
-		if len(args) > 0 {
-			ee.stdlib.Errorln(args[0])
-			return args[0], nil
-		}
-		ee.stdlib.Errorln("")
-		return "", nil
-	case "ReadFile":
-		if len(args) == 0 {
-			return "", fmt.Errorf("ReadFile requires filename argument")
-		}
-		return ee.stdlib.ReadFile(args[0])
-	case "WriteFile":
-		if len(args) < 2 {
-			return "", fmt.Errorf("WriteFile requires filename and content arguments")
-		}
-		err := ee.stdlib.WriteFile(args[0], args[1])
-		return "File written", err
-	case "ListFiles":
-		if len(args) == 0 {
-			files, err := ee.stdlib.ListFiles(".")
-			if err != nil {
-				return "", err
-			}
-			return strings.Join(files, "\n"), nil
-		}
-		files, err := ee.stdlib.ListFiles(args[0])
-		if err != nil {
-			return "", err
-		}
-		return strings.Join(files, "\n"), nil
-	case "FileExists":
-		if len(args) == 0 {
-			return "", fmt.Errorf("FileExists requires filename argument")
-		}
-		exists := ee.stdlib.FileExists(args[0])
-		return fmt.Sprintf("%v", exists), nil
-	case "Contains":
-		if len(args) < 2 {
-			return "", fmt.Errorf("Contains requires haystack and needle arguments")
-		}
-		contains := ee.stdlib.Contains(args[0], args[1])
-		return fmt.Sprintf("%v", contains), nil
-	case "Replace":
-		if len(args) < 3 {
-			return "", fmt.Errorf("Replace requires string, old, and new arguments")
-		}
-		return ee.stdlib.Replace(args[0], args[1], args[2]), nil
-	case "ToUpper":
-		if len(args) == 0 {
-			return "", nil
-		}
-		return ee.stdlib.ToUpper(args[0]), nil
-	case "ToLower":
-		if len(args) == 0 {
-			return "", nil
-		}
-		return ee.stdlib.ToLower(args[0]), nil
-	case "Trim":
-		if len(args) == 0 {
-			return "", nil
-		}
-		return ee.stdlib.Trim(args[0]), nil
-	case "GetEnv":
-		if len(args) == 0 {
-			return "", fmt.Errorf("GetEnv requires environment variable name")
-		}
-		return ee.stdlib.GetEnv(args[0]), nil
-	case "SetEnv":
-		if len(args) < 2 {
-			return "", fmt.Errorf("SetEnv requires key and value arguments")
-		}
-		err := ee.stdlib.SetEnv(args[0], args[1])
-		return "Environment variable set", err
-	case "WorkingDir":
-		wd, err := ee.stdlib.WorkingDir()
-		if err != nil {
-			return "", err
-		}
-		return wd, nil
-	case "ChangeDir":
-		if len(args) == 0 {
-			return "", fmt.Errorf("ChangeDir requires directory path")
-		}
-		err := ee.stdlib.ChangeDir(args[0])
-		return "Directory changed", err
 	default:
-		return "", fmt.Errorf("unknown standard library function: %s", funcName)
+		return fmt.Sprintf("%v", v), nil
 	}
 }
 
