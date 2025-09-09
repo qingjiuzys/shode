@@ -6,9 +6,7 @@ Shode 是一个现代化的 Shell 脚本运行时平台，旨在解决传统 She
 
 将 Shell 脚本从手工作坊模式提升到现代工程学科，创建一个统一、安全、高性能的平台，拥有丰富的生态系统，为 AI 时代的运维提供基础。
 
-##  :arrow_right_hook: 
-
-[打开网站](http://http://shode.818cloud.com/)
+##  :arrow_right_hook: [官方网址](http://shode.818cloud.com/)
 
 ## 🚀 快速开始
 
