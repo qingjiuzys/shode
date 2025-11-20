@@ -1,0 +1,66 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Shode",
+  "scopeName": "source.shode",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#numbers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.shode",
+          "begin": "#",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.shode" } },
+          "end": "$\\n?"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.shode",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.shode" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.shode" } },
+          "patterns": [
+            { "name": "constant.character.escape.shode", "match": "\\\\." }
+          ]
+        },
+        {
+          "name": "string.quoted.single.shode",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.shode" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.shode" } }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.shode",
+          "match": "\\b(if|then|else|fi|for|in|while|do|done|function|return|break|continue)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.shode",
+          "match": "\\b(ReadFile|WriteFile|ListFiles|FileExists|CopyFile|Move|MkdirAll|Remove|Glob|TempFile|Contains|Replace|ToUpper|ToLower|Trim|Split|Join|MatchRegex|ReplaceRegex|JSONEncodeMap|JSONDecodeToMap|JSONPretty|SleepSeconds|TimeNowRFC3339|GenerateUUID|HTTPGet|HTTPPostJSON|Println|Print|Errorln|Error)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.shode", "match": "\\b[0-9]+\\b" }
+      ]
+    }
+  }
+}

@@ -13,6 +13,7 @@ The Shode Package Registry is a complete package management system for sharing a
 - Checksum verification
 - Authentication and authorization
 - Ed25519 package signatures with trust-store based verification
+- Cloud deployment mode（PostgreSQL + S3），参考 `docs/CLOUD_REGISTRY.md`
 
 ### 2. Package Discovery
 - Full-text search

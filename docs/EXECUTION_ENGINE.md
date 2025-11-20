@@ -256,6 +256,29 @@ Built-in functions that replace common shell commands:
 - `Error(text)` - Print to stderr
 - `Errorln(text)` - Print to stderr with newline
 
+## IDE & 调试支持
+
+- VSCode 插件位于 `ide/vscode/shode`，提供：
+  - TextMate 语法高亮与 `language-configuration`
+  - LSP 服务器（Completion / Hover / Diagnostics）
+  - 命令面板快捷命令：`Shode: Run Script`、`Shode: Execute Selection`
+- 调试器基于 VSCode Debug Adapter Protocol：
+  - `shode debug-adapter` 子命令启动 DAP server（stdin/stdout）
+  - 支持 `stopOnEntry`、断点、`continue`、`next` 单步
+  - 在 `.vscode/launch.json` 中添加：
+
+```jsonc
+{
+  "name": "Shode: Launch Script",
+  "type": "shode",
+  "request": "launch",
+  "program": "${file}",
+  "stopOnEntry": true
+}
+```
+
+启动调试前确保 VSCode 能在 PATH 中找到 `shode` 可执行文件。
+
 ## Performance Features
 
 ### Command Caching

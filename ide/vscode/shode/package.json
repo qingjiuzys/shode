@@ -1,0 +1,133 @@
+{
+  "name": "shode-vscode",
+  "displayName": "Shode",
+  "description": "VSCode tooling for the Shode scripting language.",
+  "version": "0.1.0",
+  "publisher": "shode",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:shode",
+    "onCommand:shode.runScript",
+    "onCommand:shode.execSelection"
+  ],
+  "main": "./dist/client/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "shode",
+        "aliases": ["Shode", "shode"],
+        "extensions": [".shode", ".shode.sh", ".sho"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "shode",
+        "scopeName": "source.shode",
+        "path": "./syntaxes/shode.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "shode.runScript",
+        "title": "Shode: Run Script"
+      },
+      {
+        "command": "shode.execSelection",
+        "title": "Shode: Execute Selection"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "shode.runScript",
+        "key": "ctrl+shift+r",
+        "when": "editorTextFocus && editorLangId == shode"
+      },
+      {
+        "command": "shode.execSelection",
+        "key": "ctrl+shift+e",
+        "when": "editorTextFocus && editorLangId == shode"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "shode",
+        "label": "Shode Debugger",
+        "languages": ["shode"],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the Shode script",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Break on first command",
+                "default": true
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory",
+                "default": "${workspaceFolder}"
+              }
+            },
+            "required": ["program"]
+          }
+        },
+        "initialConfigurations": [
+          {
+            "name": "Shode: Launch Script",
+            "type": "shode",
+            "request": "launch",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Shode: Launch current file",
+            "description": "Run & debug the active Shode script",
+            "body": {
+              "name": "Shode: Launch",
+              "type": "shode",
+              "request": "launch",
+              "program": "${file}",
+              "stopOnEntry": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "npm run build:server && npm run build:client",
+    "build:client": "tsc -p ./client/tsconfig.json",
+    "build:server": "tsc -p ./server/tsconfig.json",
+    "watch": "npm-run-all --parallel watch:client watch:server",
+    "watch:client": "tsc -p ./client/tsconfig.json -w",
+    "watch:server": "tsc -p ./server/tsconfig.json -w",
+    "prepare": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "npm-run-all": "^4.1.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.2",
+    "vsce": "^2.15.0",
+    "vscode": "^1.1.37"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  }
+}
