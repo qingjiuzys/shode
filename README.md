@@ -69,6 +69,19 @@ go build -o shode ./cmd/shode
 ./shode --help
 ```
 
+### Developer Utilities
+
+```bash
+# Format scripts (in-place). Use --check in CI.
+./shode fmt scripts/
+
+# Lint for common pitfalls
+./shode lint scripts/
+
+# Run Shode script tests (files under tests/ or *_test.shode)
+./shode test
+```
+
 ### Package Management
 
 ```bash
