@@ -216,6 +216,12 @@ Built-in functions that replace common shell commands:
 - `WriteFile(filename, content)` - Write to file
 - `ListFiles(dir)` - List directory contents
 - `FileExists(filename)` - Check file existence
+- `CopyFile(src, dst)` - Copy files safely
+- `Move(src, dst)` - Move files/directories (with cross-device fallback)
+- `MkdirAll(path)` - Create directory tree
+- `Remove(path)` - Remove files/directories recursively
+- `Glob(pattern)` - Expand glob pattern
+- `TempFile(prefix)` - Create temporary files
 
 ### String Operations
 - `Contains(haystack, needle)` - String search
@@ -223,12 +229,26 @@ Built-in functions that replace common shell commands:
 - `ToUpper(str)` - Convert to uppercase
 - `ToLower(str)` - Convert to lowercase
 - `Trim(str)` - Trim whitespace
+- `Split(str, sep)` - Split strings
+- `Join(parts, sep)` - Join slices
+- `MatchRegex(pattern, value)` - Regex test
+- `ReplaceRegex(pattern, replacement, value)` - Regex replacement
 
-### Environment
-- `GetEnv(key)` - Get environment variable
-- `SetEnv(key, value)` - Set environment variable
-- `WorkingDir()` - Get current directory
-- `ChangeDir(path)` - Change directory
+### Environment & Data
+- `GetEnv(key)` / `SetEnv(key, value)` - Manage env variables
+- `WorkingDir()` / `ChangeDir(path)` - Control working directory
+- `JSONEncodeMap(map)` - Serialize to JSON
+- `JSONDecodeToMap(json)` - Parse JSON into map
+- `JSONPretty(json)` - Pretty-print JSON for logs
+
+### Time & Utilities
+- `SleepSeconds(n)` - Pause execution
+- `TimeNowRFC3339()` - Current timestamp string
+- `GenerateUUID()` - Random RFC4122 UUID
+
+### Networking
+- `HTTPGet(url, timeoutSeconds)` - Safe GET helper with validation
+- `HTTPPostJSON(url, body, timeoutSeconds)` - POST JSON payloads
 
 ### Output
 - `Print(text)` - Print without newline

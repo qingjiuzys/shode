@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"gitee.com/com_818cloud/shode/pkg/security"
 )
 
 // Client represents a registry client
@@ -19,15 +21,17 @@ type Client struct {
 	config     *RegistryConfig
 	httpClient *http.Client
 	cache      *Cache
+	trustStore *security.TrustStore
 }
 
 // NewClient creates a new registry client
 func NewClient(config *RegistryConfig) (*Client, error) {
 	if config == nil {
 		config = &RegistryConfig{
-			URL:      "https://registry.shode.io", // Default registry
-			CacheDir: filepath.Join(os.TempDir(), "shode-cache"),
-			Timeout:  30,
+			URL:           "https://registry.shode.io", // Default registry
+			CacheDir:      filepath.Join(os.TempDir(), "shode-cache"),
+			Timeout:       30,
+			AllowUnsigned: true,
 		}
 	}
 
@@ -42,10 +46,16 @@ func NewClient(config *RegistryConfig) (*Client, error) {
 
 	cache := NewCache(config.CacheDir)
 
+	trustStore, err := security.LoadOrCreateTrustStore(config.TrustStorePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load trust store: %v", err)
+	}
+
 	return &Client{
 		config:     config,
 		httpClient: httpClient,
 		cache:      cache,
+		trustStore: trustStore,
 	}, nil
 }
 
@@ -53,7 +63,7 @@ func NewClient(config *RegistryConfig) (*Client, error) {
 func (c *Client) Search(query *SearchQuery) ([]*SearchResult, error) {
 	// Build query parameters
 	url := fmt.Sprintf("%s/api/search", c.config.URL)
-	
+
 	// Prepare request body
 	reqBody, err := json.Marshal(query)
 	if err != nil {
@@ -100,7 +110,7 @@ func (c *Client) GetPackage(name string) (*PackageMetadata, error) {
 
 	// Fetch from registry
 	url := fmt.Sprintf("%s/api/packages/%s", c.config.URL, name)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -188,6 +198,10 @@ func (c *Client) Download(name, version string) (string, error) {
 		return "", fmt.Errorf("checksum mismatch: expected %s, got %s", pkgVersion.Shasum, checksum)
 	}
 
+	if err := c.verifySignature(pkgVersion, tarballData); err != nil {
+		return "", err
+	}
+
 	// Save to cache
 	tarballPath := filepath.Join(c.config.CacheDir, fmt.Sprintf("%s-%s.tar.gz", name, version))
 	if err := ioutil.WriteFile(tarballPath, tarballData, 0644); err != nil {
@@ -214,7 +228,7 @@ func (c *Client) Publish(req *PublishRequest) error {
 
 	// Prepare request
 	url := fmt.Sprintf("%s/api/packages", c.config.URL)
-	
+
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
@@ -269,10 +283,59 @@ func (c *Client) SetToken(token string) {
 	c.config.Token = token
 }
 
+// SetAllowUnsigned configures whether unsigned packages are permitted
+func (c *Client) SetAllowUnsigned(allow bool) {
+	c.config.AllowUnsigned = allow
+}
+
+// ReloadTrustStore reloads trust store from disk (useful after modifications)
+func (c *Client) ReloadTrustStore() error {
+	store, err := security.LoadOrCreateTrustStore(c.config.TrustStorePath)
+	if err != nil {
+		return err
+	}
+	c.trustStore = store
+	return nil
+}
+
 // calculateChecksum calculates SHA256 checksum of data
 func calculateChecksum(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+func (c *Client) verifySignature(pkgVersion *PackageVersion, tarballData []byte) error {
+	if pkgVersion == nil {
+		return fmt.Errorf("package version metadata missing")
+	}
+
+	if pkgVersion.Signature == "" || pkgVersion.SignerID == "" {
+		if c.config.AllowUnsigned {
+			return nil
+		}
+		return fmt.Errorf("package %s is unsigned and allowUnsigned=false", pkgVersion.Version)
+	}
+
+	if c.trustStore == nil {
+		if c.config.AllowUnsigned {
+			return nil
+		}
+		return fmt.Errorf("trust store not initialized")
+	}
+
+	publicKey, ok := c.trustStore.GetPublicKey(pkgVersion.SignerID)
+	if !ok {
+		if c.config.AllowUnsigned {
+			return nil
+		}
+		return fmt.Errorf("signer %s not trusted", pkgVersion.SignerID)
+	}
+
+	if err := security.VerifySignature(tarballData, pkgVersion.Signature, pkgVersion.SignatureAlgo, publicKey); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return nil
 }
 
 // extractTarball extracts a tar.gz archive to the target directory
@@ -292,7 +355,7 @@ func extractTarball(tarballPath, targetDir string) error {
 	// TODO: Implement actual tar.gz extraction
 	// For now, this is a placeholder
 	// In production, use archive/tar and compress/gzip packages
-	
+
 	// Placeholder: Just copy the file as-is
 	destFile := filepath.Join(targetDir, "package.tar.gz")
 	dest, err := os.Create(destFile)

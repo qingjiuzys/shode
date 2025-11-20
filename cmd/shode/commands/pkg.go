@@ -27,6 +27,7 @@ in Shode projects. Uses shode.json for configuration.`,
 	cmd.AddCommand(newPkgScriptCommand())
 	cmd.AddCommand(newPkgSearchCommand())
 	cmd.AddCommand(newPkgPublishCommand())
+	cmd.AddCommand(newPkgSignerCommand())
 
 	return cmd
 }
@@ -63,15 +64,19 @@ func newPkgInitCommand() *cobra.Command {
 
 // newPkgInstallCommand creates the 'install' subcommand
 func newPkgInstallCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install all dependencies",
 		Long:  `Install downloads and installs all dependencies specified in shode.json.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			allowUnsigned, _ := cmd.Flags().GetBool("allow-unsigned")
 			pm := pkgmgr.NewPackageManager()
-			return pm.Install()
+			return pm.Install(&pkgmgr.InstallOptions{AllowUnsigned: allowUnsigned})
 		},
 	}
+
+	cmd.Flags().Bool("allow-unsigned", false, "Allow installing unsigned packages")
+	return cmd
 }
 
 // newPkgAddCommand creates the 'add' subcommand
@@ -263,11 +268,14 @@ func newPkgSearchCommand() *cobra.Command {
 
 // newPkgPublishCommand creates the 'publish' subcommand
 func newPkgPublishCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "publish",
 		Short: "Publish the package to the registry",
 		Long:  `Publish uploads the current package to the Shode package registry.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			signer, _ := cmd.Flags().GetString("signer")
+			keyPath, _ := cmd.Flags().GetString("key")
+
 			pm := pkgmgr.NewPackageManager()
 			
 			// Load config to verify package is ready
@@ -278,7 +286,12 @@ func newPkgPublishCommand() *cobra.Command {
 			config := pm.GetConfig()
 			fmt.Printf("Publishing %s@%s to registry...\n", config.Name, config.Version)
 
-			if err := pm.Publish(); err != nil {
+			opts := &pkgmgr.PublishOptions{
+				SignerID: signer,
+				KeyPath:  keyPath,
+			}
+
+			if err := pm.Publish(opts); err != nil {
 				return fmt.Errorf("publish failed: %v", err)
 			}
 
@@ -286,4 +299,8 @@ func newPkgPublishCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().String("signer", "", "Signer ID to use for publishing")
+	cmd.Flags().String("key", "", "Path to signing key (.ed25519)")
+	return cmd
 }

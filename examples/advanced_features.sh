@@ -79,6 +79,27 @@ echo "Uppercase: $(ToUpper "$text")"
 echo "Contains 'world': $(Contains "$text" "world")"
 echo ""
 
+# Advanced stdlib helpers
+echo "Creating temp file via TempFile + WriteFile:"
+TEMP_PATH=$(TempFile "shode-demo")
+WriteFile "$TEMP_PATH" "Temp data generated via stdlib"
+echo "Temp path: $TEMP_PATH"
+
+echo "JSON utilities:"
+RAW_JSON='{"service":"shode","status":"ok"}'
+PRETTY_JSON=$(JSONPretty "$RAW_JSON")
+echo "$PRETTY_JSON"
+
+echo "Current time via TimeNowRFC3339:"
+echo "$(TimeNowRFC3339)"
+
+echo "Generated UUID:"
+echo "$(GenerateUUID)"
+
+echo "Cleaning temp file via Remove:"
+Remove "$TEMP_PATH"
+echo ""
+
 # 8. Complex Pipeline
 echo "8. Complex Pipeline Example:"
 echo "Creating log file..."

@@ -1,10 +1,19 @@
 package stdlib
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // StdLib provides built-in functions to replace external commands
@@ -51,6 +60,76 @@ func (sl *StdLib) FileExists(filename string) bool {
 	return !os.IsNotExist(err)
 }
 
+// CopyFile copies a file from src to dst
+func (sl *StdLib) CopyFile(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer source.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	dest, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dest.Close()
+
+	if _, err := io.Copy(dest, source); err != nil {
+		return fmt.Errorf("failed to copy data: %w", err)
+	}
+
+	return nil
+}
+
+// Move moves a file or directory
+func (sl *StdLib) Move(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source: %w", err)
+	}
+
+	if err := os.Rename(src, dst); err != nil {
+		if info.IsDir() {
+			return fmt.Errorf("failed to move directory across filesystems: %w", err)
+		}
+		// fallback copy then remove
+		if err := sl.CopyFile(src, dst); err != nil {
+			return err
+		}
+		return os.Remove(src)
+	}
+	return nil
+}
+
+// MkdirAll creates a directory tree
+func (sl *StdLib) MkdirAll(path string) error {
+	return os.MkdirAll(path, 0755)
+}
+
+// Remove deletes a file or directory tree
+func (sl *StdLib) Remove(path string) error {
+	return os.RemoveAll(path)
+}
+
+// Glob expands glob patterns
+func (sl *StdLib) Glob(pattern string) ([]string, error) {
+	return filepath.Glob(pattern)
+}
+
+// TempFile creates a temporary file and returns its path
+func (sl *StdLib) TempFile(prefix string) (string, error) {
+	file, err := os.CreateTemp("", prefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer file.Close()
+	return file.Name(), nil
+}
+
 // String functions
 
 // Contains checks if a string contains another string (replaces grep)
@@ -78,6 +157,34 @@ func (sl *StdLib) Trim(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// Split splits a string using the provided separator
+func (sl *StdLib) Split(s, sep string) []string {
+	return strings.Split(s, sep)
+}
+
+// Join joins strings using the provided separator
+func (sl *StdLib) Join(parts []string, sep string) string {
+	return strings.Join(parts, sep)
+}
+
+// MatchRegex tests whether value matches the regex pattern
+func (sl *StdLib) MatchRegex(pattern, value string) (bool, error) {
+	matched, err := regexp.MatchString(pattern, value)
+	if err != nil {
+		return false, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+	return matched, nil
+}
+
+// ReplaceRegex replaces regex matches with replacement
+func (sl *StdLib) ReplaceRegex(pattern, replacement, value string) (string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid regex pattern: %w", err)
+	}
+	return re.ReplaceAllString(value, replacement), nil
+}
+
 // Environment functions
 
 // GetEnv gets an environment variable (replaces $VAR)
@@ -100,6 +207,129 @@ func (sl *StdLib) ChangeDir(dirpath string) error {
 	return os.Chdir(dirpath)
 }
 
+// Data functions
+
+// JSONEncodeMap encodes a map as JSON string
+func (sl *StdLib) JSONEncodeMap(data map[string]interface{}) (string, error) {
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode json: %w", err)
+	}
+	return string(bytes), nil
+}
+
+// JSONDecodeToMap decodes JSON string into a map
+func (sl *StdLib) JSONDecodeToMap(raw string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, fmt.Errorf("failed to decode json: %w", err)
+	}
+	return result, nil
+}
+
+// JSONPretty formats JSON with indentation
+func (sl *StdLib) JSONPretty(raw string) (string, error) {
+	var obj interface{}
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return "", fmt.Errorf("failed to parse json: %w", err)
+	}
+	bytes, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to format json: %w", err)
+	}
+	return string(bytes), nil
+}
+
+// System & utility functions
+
+// SleepSeconds pauses execution for N seconds
+func (sl *StdLib) SleepSeconds(seconds int) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	time.Sleep(time.Duration(seconds) * time.Second)
+}
+
+// TimeNowRFC3339 returns current time in RFC3339 format
+func (sl *StdLib) TimeNowRFC3339() string {
+	return time.Now().Format(time.RFC3339)
+}
+
+// GenerateUUID returns a random RFC4122 UUID string
+func (sl *StdLib) GenerateUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+
+	hexStr := hex.EncodeToString(b)
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		hexStr[0:8],
+		hexStr[8:12],
+		hexStr[12:16],
+		hexStr[16:20],
+		hexStr[20:32],
+	), nil
+}
+
+// HTTPGet performs a simple HTTP GET request with timeout (seconds)
+func (sl *StdLib) HTTPGet(rawURL string, timeoutSeconds int) (string, error) {
+	parsed, err := validateHTTPURL(rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: httpTimeout(timeoutSeconds)}
+	resp, err := client.Get(parsed.String())
+	if err != nil {
+		return "", fmt.Errorf("http get failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("http get failed with status %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return string(body), nil
+}
+
+// HTTPPostJSON performs an HTTP POST with JSON body
+func (sl *StdLib) HTTPPostJSON(rawURL string, body string, timeoutSeconds int) (string, error) {
+	parsed, err := validateHTTPURL(rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: httpTimeout(timeoutSeconds)}
+	resp, err := client.Post(parsed.String(), "application/json", strings.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("http post failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("http post failed with status %d", resp.StatusCode)
+	}
+
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return string(respBody), nil
+}
+
 // Utility functions
 
 // Print outputs text to stdout (replaces echo)
@@ -120,4 +350,22 @@ func (sl *StdLib) Error(text string) {
 // Errorln outputs text with newline to stderr (replaces echo >&2)
 func (sl *StdLib) Errorln(text string) {
 	fmt.Fprintln(os.Stderr, text)
+}
+
+func validateHTTPURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported url scheme: %s", parsed.Scheme)
+	}
+	return parsed, nil
+}
+
+func httpTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return 10 * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }
