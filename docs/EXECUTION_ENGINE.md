@@ -222,6 +222,12 @@ Built-in functions that replace common shell commands:
 - `Remove(path)` - Remove files/directories recursively
 - `Glob(pattern)` - Expand glob pattern
 - `TempFile(prefix)` - Create temporary files
+- `Touch(path)` - Create or update timestamps
+- `Chmod(path, perm)` / `Chown(path, uid, gid)` - Manage permissions/ownership
+- `Head(path, n)` / `Tail(path, n)` - Read beginning/end of files
+- `FindFiles(root, pattern)` - Recursive file match
+- `DiskUsage(path)` - Sum file sizes recursively
+- `ChecksumSHA256(path)` - Generate SHA256 checksum
 
 ### String Operations
 - `Contains(haystack, needle)` - String search
@@ -233,10 +239,13 @@ Built-in functions that replace common shell commands:
 - `Join(parts, sep)` - Join slices
 - `MatchRegex(pattern, value)` - Regex test
 - `ReplaceRegex(pattern, replacement, value)` - Regex replacement
+- `GrepLines(text, needle)` - Filter lines containing substring
+- `GrepRegex(text, pattern)` - Regex-based filtering
 
 ### Environment & Data
 - `GetEnv(key)` / `SetEnv(key, value)` - Manage env variables
 - `WorkingDir()` / `ChangeDir(path)` - Control working directory
+- `Hostname()` / `CurrentUser()` - Inspect host/user info
 - `JSONEncodeMap(map)` - Serialize to JSON
 - `JSONDecodeToMap(json)` - Parse JSON into map
 - `JSONPretty(json)` - Pretty-print JSON for logs

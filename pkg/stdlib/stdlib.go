@@ -1,7 +1,9 @@
 package stdlib
 
 import (
+	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -130,6 +133,108 @@ func (sl *StdLib) TempFile(prefix string) (string, error) {
 	return file.Name(), nil
 }
 
+// Touch updates timestamps or creates the file
+func (sl *StdLib) Touch(path string) error {
+	now := time.Now()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := ioutil.WriteFile(path, []byte{}, 0644); err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+	}
+	return os.Chtimes(path, now, now)
+}
+
+// Chmod changes permissions
+func (sl *StdLib) Chmod(path string, perm os.FileMode) error {
+	return os.Chmod(path, perm)
+}
+
+// Chown changes ownership (Unix only, other systems may return error)
+func (sl *StdLib) Chown(path string, uid, gid int) error {
+	return os.Chown(path, uid, gid)
+}
+
+// Head returns first n lines of file
+func (sl *StdLib) Head(path string, n int) ([]string, error) {
+	if n <= 0 {
+		return []string{}, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) >= n {
+			break
+		}
+	}
+	return lines, scanner.Err()
+}
+
+// Tail returns last n lines of file
+func (sl *StdLib) Tail(path string, n int) ([]string, error) {
+	if n <= 0 {
+		return []string{}, nil
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) <= n {
+		return lines, nil
+	}
+	return lines[len(lines)-n:], nil
+}
+
+// DiskUsage sums file sizes rooted at path
+func (sl *StdLib) DiskUsage(path string) (int64, error) {
+	var total int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+// FindFiles matches files by pattern recursively
+func (sl *StdLib) FindFiles(root, pattern string) ([]string, error) {
+	var matches []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if ok, _ := filepath.Match(pattern, info.Name()); ok {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	return matches, err
+}
+
+// ChecksumSHA256 computes SHA256 for a file
+func (sl *StdLib) ChecksumSHA256(path string) (string, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // String functions
 
 // Contains checks if a string contains another string (replaces grep)
@@ -140,6 +245,36 @@ func (sl *StdLib) Contains(haystack, needle string) bool {
 // Replace replaces all occurrences of old with new in a string (replaces sed)
 func (sl *StdLib) Replace(s, old, new string) string {
 	return strings.ReplaceAll(s, old, new)
+}
+
+// GrepLines returns lines matching the substring needle
+func (sl *StdLib) GrepLines(text, needle string) []string {
+	var matches []string
+	scanner := bufio.NewScanner(strings.NewReader(text))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, needle) {
+			matches = append(matches, line)
+		}
+	}
+	return matches
+}
+
+// GrepRegex returns lines matching the regex pattern
+func (sl *StdLib) GrepRegex(text, pattern string) ([]string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+	var matches []string
+	scanner := bufio.NewScanner(strings.NewReader(text))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if re.MatchString(line) {
+			matches = append(matches, line)
+		}
+	}
+	return matches, nil
 }
 
 // ToUpper converts string to uppercase (replaces tr '[:lower:]' '[:upper:]')
@@ -205,6 +340,20 @@ func (sl *StdLib) WorkingDir() (string, error) {
 // ChangeDir changes the current directory (replaces cd)
 func (sl *StdLib) ChangeDir(dirpath string) error {
 	return os.Chdir(dirpath)
+}
+
+// Hostname returns the system hostname
+func (sl *StdLib) Hostname() (string, error) {
+	return os.Hostname()
+}
+
+// CurrentUser returns current username
+func (sl *StdLib) CurrentUser() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.Username, nil
 }
 
 // Data functions
