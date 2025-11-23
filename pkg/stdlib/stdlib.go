@@ -1,9 +1,14 @@
 package stdlib
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,11 +17,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // StdLib provides built-in functions to replace external commands
@@ -235,6 +243,176 @@ func (sl *StdLib) ChecksumSHA256(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// TarCreate creates a tar.gz archive from sourceDir
+func (sl *StdLib) TarCreate(sourceDir, dest string) error {
+	f, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("create tar: %w", err)
+	}
+	defer f.Close()
+
+	gw := gzip.NewWriter(f)
+	defer gw.Close()
+
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		header.Name = rel
+
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(tw, file)
+		return err
+	})
+}
+
+// TarExtract extracts a tar.gz archive to targetDir
+func (sl *StdLib) TarExtract(archivePath, targetDir string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open tar: %w", err)
+	}
+	defer file.Close()
+
+	gr, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("gzip reader: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		dest := filepath.Join(targetDir, header.Name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(dest, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+				return err
+			}
+			out, err := os.Create(dest)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+		}
+	}
+	return nil
+}
+
+// ZipCreate creates a zip archive
+func (sl *StdLib) ZipCreate(sourceDir, dest string) error {
+	file, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	zw := zip.NewWriter(file)
+	defer zw.Close()
+
+	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		writer, err := zw.Create(rel)
+		if err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(writer, src)
+		return err
+	})
+}
+
+// ZipExtract extracts a zip archive
+func (sl *StdLib) ZipExtract(archivePath, targetDir string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	for _, file := range reader.File {
+		dest := filepath.Join(targetDir, file.Name)
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(dest, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+
+		destFile, err := os.Create(dest)
+		if err != nil {
+			return err
+		}
+		src, err := file.Open()
+		if err != nil {
+			destFile.Close()
+			return err
+		}
+		if _, err := io.Copy(destFile, src); err != nil {
+			src.Close()
+			destFile.Close()
+			return err
+		}
+		src.Close()
+		destFile.Close()
+	}
+	return nil
+}
+
 // String functions
 
 // Contains checks if a string contains another string (replaces grep)
@@ -392,6 +570,44 @@ func (sl *StdLib) JSONPretty(raw string) (string, error) {
 	return string(bytes), nil
 }
 
+// YAMLDecode converts YAML to a map
+func (sl *StdLib) YAMLDecode(raw string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := yaml.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, fmt.Errorf("failed to decode yaml: %w", err)
+	}
+	return result, nil
+}
+
+// YAMLEncode marshals map to YAML
+func (sl *StdLib) YAMLEncode(data map[string]interface{}) (string, error) {
+	bytes, err := yaml.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode yaml: %w", err)
+	}
+	return string(bytes), nil
+}
+
+// CSVRead parses CSV content
+func (sl *StdLib) CSVRead(raw string) ([][]string, error) {
+	reader := csv.NewReader(strings.NewReader(raw))
+	return reader.ReadAll()
+}
+
+// CSVWrite writes rows to CSV string
+func (sl *StdLib) CSVWrite(records [][]string) (string, error) {
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+	if err := writer.WriteAll(records); err != nil {
+		return "", err
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
 // System & utility functions
 
 // SleepSeconds pauses execution for N seconds
@@ -477,6 +693,13 @@ func (sl *StdLib) HTTPPostJSON(rawURL string, body string, timeoutSeconds int) (
 	}
 
 	return string(respBody), nil
+}
+
+// ExecCapture runs a command and returns combined output
+func (sl *StdLib) ExecCapture(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 // Utility functions
