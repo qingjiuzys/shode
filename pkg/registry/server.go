@@ -10,16 +10,21 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gitee.com/com_818cloud/shode/pkg/security"
 )
 
 // Server represents a local registry server
 type Server struct {
-	packages    map[string]*PackageMetadata
-	mu          sync.RWMutex
-	storageDir  string
-	port        int
-	authToken   string
+	packages   map[string]*PackageMetadata
+	mu         sync.RWMutex
+	storageDir string
+	port       int
+	authToken  string
+	trustStore *security.TrustStore
 }
+
+const serverTrustStoreFile = "trusted_signers.json"
 
 // NewServer creates a new registry server
 func NewServer(storageDir string, port int) (*Server, error) {
@@ -27,11 +32,18 @@ func NewServer(storageDir string, port int) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage directory: %v", err)
 	}
 
+	trustStorePath := filepath.Join(storageDir, serverTrustStoreFile)
+	trustStore, err := security.LoadOrCreateTrustStore(trustStorePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load server trust store: %w", err)
+	}
+
 	server := &Server{
 		packages:   make(map[string]*PackageMetadata),
 		storageDir: storageDir,
 		port:       port,
 		authToken:  generateAuthToken(),
+		trustStore: trustStore,
 	}
 
 	// Load existing packages
@@ -141,6 +153,28 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify signature
+	if s.trustStore == nil {
+		http.Error(w, "Server trust store not configured", http.StatusInternalServerError)
+		return
+	}
+
+	if req.SignerID == "" || req.Signature == "" {
+		http.Error(w, "Signature and signerId are required", http.StatusBadRequest)
+		return
+	}
+
+	publicKey, ok := s.trustStore.GetPublicKey(req.SignerID)
+	if !ok {
+		http.Error(w, "Signer not trusted", http.StatusForbidden)
+		return
+	}
+
+	if err := security.VerifySignature(req.Tarball, req.Signature, req.SignatureAlgo, publicKey); err != nil {
+		http.Error(w, fmt.Sprintf("Signature verification failed: %v", err), http.StatusForbidden)
+		return
+	}
+
 	// Store package
 	if err := s.storePackage(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to store package: %v", err), http.StatusInternalServerError)
@@ -232,7 +266,7 @@ func (s *Server) searchPackages(query *SearchQuery) []*SearchResult {
 // storePackage stores a published package
 func (s *Server) storePackage(req *PublishRequest) error {
 	pkg := req.Package
-	
+
 	// Create package directory
 	pkgDir := filepath.Join(s.storageDir, "packages", pkg.Name)
 	if err := os.MkdirAll(pkgDir, 0755); err != nil {
@@ -266,19 +300,23 @@ func (s *Server) storePackage(req *PublishRequest) error {
 
 	// Add version
 	pkgVersion := &PackageVersion{
-		Version:      pkg.Version,
-		Description:  pkg.Description,
-		Author:       pkg.Author,
-		Main:         pkg.Main,
-		Dependencies: pkg.Dependencies,
+		Version:         pkg.Version,
+		Description:     pkg.Description,
+		Author:          pkg.Author,
+		Main:            pkg.Main,
+		Dependencies:    pkg.Dependencies,
 		DevDependencies: pkg.DevDependencies,
-		TarballURL:   fmt.Sprintf("http://localhost:%d/tarballs/%s/%s-%s.tar.gz", s.port, pkg.Name, pkg.Name, pkg.Version),
-		Shasum:       req.Checksum,
-		PublishedAt:  time.Now(),
+		TarballURL:      fmt.Sprintf("http://localhost:%d/tarballs/%s/%s-%s.tar.gz", s.port, pkg.Name, pkg.Name, pkg.Version),
+		Shasum:          req.Checksum,
+		Signature:       req.Signature,
+		SignatureAlgo:   req.SignatureAlgo,
+		SignerID:        req.SignerID,
+		PublishedAt:     time.Now(),
 	}
 	metadata.Versions[pkg.Version] = pkgVersion
 	metadata.LatestVersion = pkg.Version
 	metadata.UpdatedAt = time.Now()
+	metadata.Verified = true
 
 	s.packages[pkg.Name] = metadata
 
@@ -289,7 +327,7 @@ func (s *Server) storePackage(req *PublishRequest) error {
 // saveMetadata saves package metadata to disk
 func (s *Server) saveMetadata(name string, metadata *PackageMetadata) error {
 	metadataPath := filepath.Join(s.storageDir, "metadata", name+".json")
-	
+
 	// Create metadata directory
 	if err := os.MkdirAll(filepath.Dir(metadataPath), 0755); err != nil {
 		return err
@@ -306,7 +344,7 @@ func (s *Server) saveMetadata(name string, metadata *PackageMetadata) error {
 // loadPackages loads existing packages from disk
 func (s *Server) loadPackages() error {
 	metadataDir := filepath.Join(s.storageDir, "metadata")
-	
+
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(metadataDir, 0755); err != nil {
 		return err

@@ -216,6 +216,18 @@ Built-in functions that replace common shell commands:
 - `WriteFile(filename, content)` - Write to file
 - `ListFiles(dir)` - List directory contents
 - `FileExists(filename)` - Check file existence
+- `CopyFile(src, dst)` - Copy files safely
+- `Move(src, dst)` - Move files/directories (with cross-device fallback)
+- `MkdirAll(path)` - Create directory tree
+- `Remove(path)` - Remove files/directories recursively
+- `Glob(pattern)` - Expand glob pattern
+- `TempFile(prefix)` - Create temporary files
+- `Touch(path)` - Create or update timestamps
+- `Chmod(path, perm)` / `Chown(path, uid, gid)` - Manage permissions/ownership
+- `Head(path, n)` / `Tail(path, n)` - Read beginning/end of files
+- `FindFiles(root, pattern)` - Recursive file match
+- `DiskUsage(path)` - Sum file sizes recursively
+- `ChecksumSHA256(path)` - Generate SHA256 checksum
 
 ### String Operations
 - `Contains(haystack, needle)` - String search
@@ -223,18 +235,58 @@ Built-in functions that replace common shell commands:
 - `ToUpper(str)` - Convert to uppercase
 - `ToLower(str)` - Convert to lowercase
 - `Trim(str)` - Trim whitespace
+- `Split(str, sep)` - Split strings
+- `Join(parts, sep)` - Join slices
+- `MatchRegex(pattern, value)` - Regex test
+- `ReplaceRegex(pattern, replacement, value)` - Regex replacement
+- `GrepLines(text, needle)` - Filter lines containing substring
+- `GrepRegex(text, pattern)` - Regex-based filtering
 
-### Environment
-- `GetEnv(key)` - Get environment variable
-- `SetEnv(key, value)` - Set environment variable
-- `WorkingDir()` - Get current directory
-- `ChangeDir(path)` - Change directory
+### Environment & Data
+- `GetEnv(key)` / `SetEnv(key, value)` - Manage env variables
+- `WorkingDir()` / `ChangeDir(path)` - Control working directory
+- `Hostname()` / `CurrentUser()` - Inspect host/user info
+- `JSONEncodeMap(map)` - Serialize to JSON
+- `JSONDecodeToMap(json)` - Parse JSON into map
+- `JSONPretty(json)` - Pretty-print JSON for logs
+
+### Time & Utilities
+- `SleepSeconds(n)` - Pause execution
+- `TimeNowRFC3339()` - Current timestamp string
+- `GenerateUUID()` - Random RFC4122 UUID
+
+### Networking
+- `HTTPGet(url, timeoutSeconds)` - Safe GET helper with validation
+- `HTTPPostJSON(url, body, timeoutSeconds)` - POST JSON payloads
 
 ### Output
 - `Print(text)` - Print without newline
 - `Println(text)` - Print with newline
 - `Error(text)` - Print to stderr
 - `Errorln(text)` - Print to stderr with newline
+
+## IDE & 调试支持
+
+- VSCode 插件位于 `ide/vscode/shode`，提供：
+  - TextMate 语法高亮与 `language-configuration`
+  - LSP 服务器（Completion / Hover / Diagnostics）
+  - 命令面板快捷命令：`Shode: Run Script`、`Shode: Execute Selection`
+- 调试器基于 VSCode Debug Adapter Protocol：
+  - `shode debug-adapter` 子命令启动 DAP server（stdin/stdout）
+  - 支持 `stopOnEntry`、断点、`continue`、`next` 单步
+  - 在 `.vscode/launch.json` 中添加：
+
+```jsonc
+{
+  "name": "Shode: Launch Script",
+  "type": "shode",
+  "request": "launch",
+  "program": "${file}",
+  "stopOnEntry": true
+}
+```
+
+启动调试前确保 VSCode 能在 PATH 中找到 `shode` 可执行文件。
 
 ## Performance Features
 

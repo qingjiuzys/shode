@@ -9,6 +9,7 @@ import (
 
 	"gitee.com/com_818cloud/shode/pkg/environment"
 	"gitee.com/com_818cloud/shode/pkg/registry"
+	"gitee.com/com_818cloud/shode/pkg/security"
 )
 
 // PackageManager manages Shode package dependencies
@@ -21,12 +22,14 @@ type PackageManager struct {
 
 // PackageConfig represents the shode.json configuration
 type PackageConfig struct {
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	Description  string            `json:"description,omitempty"`
-	Dependencies map[string]string `json:"dependencies,omitempty"`
+	Name            string            `json:"name"`
+	Version         string            `json:"version"`
+	Description     string            `json:"description,omitempty"`
+	Dependencies    map[string]string `json:"dependencies,omitempty"`
 	DevDependencies map[string]string `json:"devDependencies,omitempty"`
-	Scripts      map[string]string `json:"scripts,omitempty"`
+	Scripts         map[string]string `json:"scripts,omitempty"`
+	SignerID        string            `json:"signerId,omitempty"`
+	SigningKeyPath  string            `json:"signingKeyPath,omitempty"`
 }
 
 // PackageInfo represents information about an installed package
@@ -39,11 +42,22 @@ type PackageInfo struct {
 	Repository  string `json:"repository,omitempty"`
 }
 
+// PublishOptions controls publishing behavior
+type PublishOptions struct {
+	SignerID string
+	KeyPath  string
+}
+
+// InstallOptions controls install behavior
+type InstallOptions struct {
+	AllowUnsigned bool
+}
+
 // NewPackageManager creates a new package manager
 func NewPackageManager() *PackageManager {
 	// Initialize registry client with default config
 	registryClient, _ := registry.NewClient(nil)
-	
+
 	return &PackageManager{
 		envManager:     environment.NewEnvironmentManager(),
 		config:         &PackageConfig{},
@@ -54,11 +68,11 @@ func NewPackageManager() *PackageManager {
 // Init initializes a new package configuration
 func (pm *PackageManager) Init(name, version string) error {
 	pm.config = &PackageConfig{
-		Name:        name,
-		Version:     version,
-		Dependencies: make(map[string]string),
+		Name:            name,
+		Version:         version,
+		Dependencies:    make(map[string]string),
 		DevDependencies: make(map[string]string),
-		Scripts:     make(map[string]string),
+		Scripts:         make(map[string]string),
 	}
 
 	// Set default config path
@@ -167,9 +181,17 @@ func (pm *PackageManager) RemoveScript(name string) error {
 }
 
 // Install installs all dependencies
-func (pm *PackageManager) Install() error {
+func (pm *PackageManager) Install(opts *InstallOptions) error {
 	if err := pm.LoadConfig(); err != nil {
 		return err
+	}
+
+	allowUnsigned := false
+	if opts != nil && opts.AllowUnsigned {
+		allowUnsigned = true
+	}
+	if pm.registryClient != nil {
+		pm.registryClient.SetAllowUnsigned(allowUnsigned)
 	}
 
 	fmt.Println("Installing dependencies...")
@@ -322,20 +344,20 @@ func (pm *PackageManager) Search(query string) ([]*registry.SearchResult, error)
 }
 
 // Publish publishes the current package to the registry
-func (pm *PackageManager) Publish() error {
+func (pm *PackageManager) Publish(opts *PublishOptions) error {
 	if err := pm.LoadConfig(); err != nil {
 		return err
 	}
 
 	// Create package data
 	pkg := &registry.Package{
-		Name:        pm.config.Name,
-		Version:     pm.config.Version,
-		Description: pm.config.Description,
-		Scripts:     pm.config.Scripts,
-		Dependencies: pm.config.Dependencies,
+		Name:            pm.config.Name,
+		Version:         pm.config.Version,
+		Description:     pm.config.Description,
+		Scripts:         pm.config.Scripts,
+		Dependencies:    pm.config.Dependencies,
 		DevDependencies: pm.config.DevDependencies,
-		Main:        "index.sh",
+		Main:            "index.sh",
 	}
 
 	// TODO: Create tarball from package files
@@ -343,10 +365,44 @@ func (pm *PackageManager) Publish() error {
 	tarballData := []byte("placeholder tarball")
 	checksum := calculateChecksum(tarballData)
 
+	signerID := ""
+	keyPath := ""
+	if opts != nil {
+		signerID = opts.SignerID
+		keyPath = opts.KeyPath
+	}
+
+	if signerID == "" {
+		signerID = pm.config.SignerID
+	}
+	if signerID == "" {
+		return fmt.Errorf("signer ID is required for publishing")
+	}
+
+	if keyPath == "" {
+		if pm.config.SigningKeyPath != "" {
+			keyPath = pm.config.SigningKeyPath
+		} else {
+			keyDir, err := security.DefaultKeyDir()
+			if err != nil {
+				return fmt.Errorf("failed to resolve key directory: %v", err)
+			}
+			keyPath = filepath.Join(keyDir, signerID+".ed25519")
+		}
+	}
+
+	signature, err := security.SignData(tarballData, keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to sign tarball: %v", err)
+	}
+
 	req := &registry.PublishRequest{
-		Package:  pkg,
-		Tarball:  tarballData,
-		Checksum: checksum,
+		Package:       pkg,
+		Tarball:       tarballData,
+		Checksum:      checksum,
+		Signature:     signature,
+		SignatureAlgo: security.SignatureAlgoEd25519,
+		SignerID:      signerID,
 	}
 
 	return pm.registryClient.Publish(req)

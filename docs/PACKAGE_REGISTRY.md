@@ -12,6 +12,8 @@ The Shode Package Registry is a complete package management system for sharing a
 - Metadata storage
 - Checksum verification
 - Authentication and authorization
+- Ed25519 package signatures with trust-store based verification
+- Cloud deployment mode（PostgreSQL + S3），参考 `docs/CLOUD_REGISTRY.md`
 
 ### 2. Package Discovery
 - Full-text search
@@ -94,6 +96,8 @@ Creates `shode.json`:
 
 ```bash
 ./shode pkg install
+# 或者允许安装未签名包（不推荐）
+./shode pkg install --allow-unsigned
 ```
 
 This will:
@@ -133,13 +137,18 @@ Found 3 package(s):
 #### Publish Package
 
 ```bash
-./shode pkg publish
+# 指定签名者 ID，自动在 ~/.shode/keys/<signer>.ed25519 中寻找密钥
+./shode pkg publish --signer my-team
+
+# 指定密钥路径
+./shode pkg publish --signer my-team --key ~/.shode/keys/my-team.ed25519
 ```
 
 Requirements:
 - Valid `shode.json` file
 - Authentication token (automatically managed)
 - Package files ready
+- Signing key (Ed25519). Use `shode pkg signer generate alice` to create one.
 
 #### List Dependencies
 
@@ -168,6 +177,27 @@ Dev Dependencies:
 ./shode pkg run test
 ```
 
+### Signature & Trust Store Management
+
+Use the new `shode pkg signer` namespace来管理密钥与信任：
+
+```bash
+# 生成 Ed25519 密钥对，存放于 ~/.shode/keys/
+./shode pkg signer generate my-team
+
+# 查看本地已有密钥
+./shode pkg signer keys
+
+# 将某个公钥加入信任列表（~/.shode/trust/trusted_signers.json）
+./shode pkg signer trust team-b ./public_keys/team-b.pub --desc "Partner team"
+
+# 查看/移除信任
+./shode pkg signer trusted
+./shode pkg signer untrust team-b
+```
+
+安装时会自动读取信任列表，只有来自受信签名者的包才会被接受（除非显式传入 `--allow-unsigned`）。
+
 ### Programmatic Usage
 
 #### Create Registry Client
@@ -184,6 +214,8 @@ config := &registry.RegistryConfig{
     Token:    "your-auth-token",
     CacheDir: "/path/to/cache",
     Timeout:  30, // seconds
+    TrustStorePath: "/path/to/trusted_signers.json",
+    AllowUnsigned:  false,
 }
 client, err := registry.NewClient(config)
 ```

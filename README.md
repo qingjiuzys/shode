@@ -32,6 +32,9 @@ Transform shell scripting from a manual workshop model to a modern engineering d
 - **Export/Import**: Function export detection and module import capabilities
 - **Path Resolution**: Support for local files and node_modules packages
 - **Module Information**: Comprehensive module metadata and export management
+- **VSCode Extension**: LSP（补全/诊断）、语法高亮、命令面板一站式体验
+- **DAP Debugger**: `shode debug-adapter` 提供断点、单步、Stop-on-entry
+- **Cloud Registry**: Go + PostgreSQL + S3 架构，满足云端分发 & 下载
 
 ## 🚀 Getting Started
 
@@ -64,6 +67,19 @@ go build -o shode ./cmd/shode
 
 # Get help
 ./shode --help
+```
+
+### Developer Utilities
+
+```bash
+# Format scripts (in-place). Use --check in CI.
+./shode fmt scripts/
+
+# Lint for common pitfalls
+./shode lint scripts/
+
+# Run Shode script tests (files under tests/ or *_test.shode)
+./shode test
 ```
 
 ### Package Management
@@ -140,6 +156,22 @@ shode/
 └── internal/            # Internal packages
 ```
 
+## 🧩 VSCode Extension & Debugger
+
+- 代码在 `ide/vscode/shode`
+- `npm install && npm run compile` 后使用 VSCode `F5` 进入 Extension Host
+- 提供语法高亮、LSP（completion / hover / diagnostics）以及命令面板命令：
+  - `Shode: Run Script` (`Ctrl+Shift+R`)
+  - `Shode: Execute Selection` (`Ctrl+Shift+E`)
+- Debugger 基于 `shode debug-adapter`（Go DAP server）：在 VSCode 调试配置中选择 `Shode: Launch Script`
+
+## ☁️ Cloud Registry
+
+- `cmd/registry-cloud` 暴露 REST API，使用 PostgreSQL 保存元数据、S3 保存 tarball
+- 所有接口兼容本地 registry：`/api/search`、`/api/packages`、`/api/packages/{name}`
+- 通过 `REGISTRY_TOKEN` 控制发布权限
+- 详细配置 & 部署说明参见 `docs/CLOUD_REGISTRY.md`
+
 ## 🛠️ Technology Stack
 
 - **Language**: Go (Golang) 1.21+
@@ -185,6 +217,9 @@ shode/
 - Environment management (GetEnv, SetEnv, WorkingDir, ChangeDir)
 - Utility functions (Print, Println, Error, Errorln)
 - Path manipulation (GetPath, SetPath, AppendToPath, PrependToPath)
+- VSCode 插件：语法高亮、LSP、命令面板快捷操作
+- 调试器：VSCode Debug 配置 + `shode debug-adapter`（DAP server）
+- `shode runScript` / `shode execSelection` 快捷键（Ctrl+Shift+R/E）
 
 #### Security
 - Dangerous command blacklist (rm, dd, mkfs, shutdown, iptables, etc.)
@@ -202,6 +237,7 @@ shode/
 - sh_models directory structure
 - Package search command
 - Package publish command
+- Cloud Registry：Go + PostgreSQL + S3（见 `cmd/registry-cloud` 与 `docs/CLOUD_REGISTRY.md`）
 
 #### Module System
 - Module loading and resolution

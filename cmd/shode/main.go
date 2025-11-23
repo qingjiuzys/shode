@@ -23,7 +23,11 @@ for shell scripting.`,
 	rootCmd.AddCommand(commands.NewExecCommand())
 	rootCmd.AddCommand(commands.NewReplCommand())
 	rootCmd.AddCommand(commands.NewPkgCommand())
+	rootCmd.AddCommand(commands.NewFmtCommand())
+	rootCmd.AddCommand(commands.NewLintCommand())
+	rootCmd.AddCommand(commands.NewTestCommand())
 	rootCmd.AddCommand(commands.NewVersionCommand())
+	rootCmd.AddCommand(commands.NewDebugAdapterCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
