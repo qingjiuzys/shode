@@ -323,7 +323,12 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			reqCtx := sl.createRequestContext(r)
 			goroutineID := fmt.Sprintf("%p", &r) // Use request pointer as unique ID
 			sl.requestContexts.Store(goroutineID, reqCtx)
-			defer sl.requestContexts.Delete(goroutineID)
+			// Also store as "current" for getCurrentRequestContext to find
+			sl.requestContexts.Store("current", reqCtx)
+			defer func() {
+				sl.requestContexts.Delete(goroutineID)
+				sl.requestContexts.Delete("current")
+			}()
 
 			// Execute handler based on type
 			if selectedHandler.handlerType == "function" {
