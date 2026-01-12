@@ -142,7 +142,7 @@ export default function HomepageComparison(): ReactNode {
                   </tr>
                   <tr>
                     <td><strong>适用场景</strong></td>
-                    <td>✅ 脚本、运维、API服务</td>
+                    <td>✅ 脚本、运维、轻量级API</td>
                     <td>✅ 大型企业应用</td>
                   </tr>
                   <tr>
