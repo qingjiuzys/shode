@@ -1626,3 +1626,63 @@ func errorToString(err error) string {
 	}
 	return err.Error()
 }
+
+// executeSourceFile loads and executes a Shode script file in the current context
+// This allows modular code organization - functions defined in the source file
+// will be available in the current execution context
+func (ee *ExecutionEngine) executeSourceFile(ctx context.Context, filePath string) (*ExecutionResult, error) {
+	// Resolve relative paths
+	if !filepath.IsAbs(filePath) {
+		// Make path relative to current working directory
+		wd := ee.envManager.GetWorkingDir()
+		filePath = filepath.Join(wd, filePath)
+	}
+
+	// Use tree-sitter parser to parse function definitions
+	// SimpleParser doesn't support function parsing yet
+	p := shodeparser.NewParser()
+	script, err := p.ParseFile(filePath)
+	if err != nil {
+		// Fallback to SimpleParser if tree-sitter fails
+		simpleP := shodeparser.NewSimpleParser()
+		script, err = simpleP.ParseFile(filePath)
+		if err != nil {
+			return &ExecutionResult{
+				Success:  false,
+				ExitCode: 1,
+				Error:    fmt.Sprintf("failed to parse source file %s: %v", filePath, err),
+			}, nil
+		}
+	}
+
+	// First pass: extract function definitions (so they're available immediately)
+	for _, node := range script.Nodes {
+		if fnNode, ok := node.(*types.FunctionNode); ok {
+			ee.functions[fnNode.Name] = fnNode
+		}
+	}
+
+	// Second pass: execute the script (this will execute any non-function code)
+	// But skip function definitions as they're already registered
+	execScript := &types.ScriptNode{
+		Pos: script.Pos,
+	}
+	for _, node := range script.Nodes {
+		if _, ok := node.(*types.FunctionNode); !ok {
+			// Not a function definition, execute it
+			execScript.Nodes = append(execScript.Nodes, node)
+		}
+	}
+
+	// Execute non-function code
+	if len(execScript.Nodes) > 0 {
+		return ee.Execute(ctx, execScript)
+	}
+
+	// Only function definitions, no execution needed
+	return &ExecutionResult{
+		Success:  true,
+		ExitCode: 0,
+		Commands: []*CommandResult{},
+	}, nil
+}
