@@ -55,21 +55,158 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
 	var pendingAnnotation *types.AnnotationNode
+	var inFunction bool
+	var functionName string
+	var functionArgs []string
+	var functionBody []string
+	var functionStartLine int
+	
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			if inFunction {
+				functionBody = append(functionBody, line)
+			}
 			continue // Skip empty lines and comments
 		}
 
+		// Check if we're inside a function body
+		if inFunction {
+			// Check for function end (closing brace on its own line)
+			if trimmed == "}" {
+				// End of function - create FunctionNode
+				bodyScript := &types.ScriptNode{
+					Pos: types.Position{Line: functionStartLine, Column: 1, Offset: 0},
+				}
+				// Parse function body
+				bodyParser := NewSimpleParser()
+				bodyContent := strings.Join(functionBody, "\n")
+				bodyParsed, err := bodyParser.ParseString(bodyContent)
+				if err == nil {
+					bodyScript.Nodes = bodyParsed.Nodes
+				}
+				
+				fnNode := &types.FunctionNode{
+					Pos: types.Position{
+						Line:   functionStartLine,
+						Column: 1,
+						Offset: 0,
+					},
+					Name: functionName,
+					Body: bodyScript,
+				}
+				script.Nodes = append(script.Nodes, fnNode)
+				
+				// Reset function state
+				inFunction = false
+				functionName = ""
+				functionArgs = nil
+				functionBody = nil
+				continue
+			}
+			// Add line to function body
+			functionBody = append(functionBody, line)
+			continue
+		}
+
+		// Check for function definition: function name(args) { or function name() {
+		if strings.HasPrefix(trimmed, "function ") {
+			// Parse function definition
+			funcDef := strings.TrimPrefix(trimmed, "function ")
+			funcDef = strings.TrimSpace(funcDef)
+			
+			// Find opening brace
+			braceIdx := strings.Index(funcDef, "{")
+			if braceIdx == -1 {
+				// Multi-line function definition - brace on next line
+				// Extract function name and args
+				parenIdx := strings.Index(funcDef, "(")
+				if parenIdx != -1 {
+					functionName = strings.TrimSpace(funcDef[:parenIdx])
+					closeParenIdx := strings.Index(funcDef, ")")
+					if closeParenIdx > parenIdx {
+						argsStr := funcDef[parenIdx+1 : closeParenIdx]
+						if argsStr != "" {
+							argsStr = strings.TrimSpace(argsStr)
+							functionArgs = strings.Split(argsStr, ",")
+							for i := range functionArgs {
+								functionArgs[i] = strings.TrimSpace(functionArgs[i])
+							}
+						}
+					}
+				} else {
+					// No args: function name {
+					functionName = strings.TrimSpace(funcDef)
+				}
+				inFunction = true
+				functionStartLine = lineNum
+				functionBody = []string{}
+				continue
+			}
+			
+			// Single-line function definition
+			funcPart := strings.TrimSpace(funcDef[:braceIdx])
+			parenIdx := strings.Index(funcPart, "(")
+			if parenIdx != -1 {
+				functionName = strings.TrimSpace(funcPart[:parenIdx])
+				closeParenIdx := strings.Index(funcPart, ")")
+				if closeParenIdx > parenIdx {
+					argsStr := funcPart[parenIdx+1 : closeParenIdx]
+					if argsStr != "" {
+						argsStr = strings.TrimSpace(argsStr)
+						functionArgs = strings.Split(argsStr, ",")
+						for i := range functionArgs {
+							functionArgs[i] = strings.TrimSpace(functionArgs[i])
+						}
+					}
+				}
+			} else {
+				functionName = strings.TrimSpace(funcPart)
+			}
+			
+			// Check if closing brace is on same line
+			closeBraceIdx := strings.Index(trimmed, "}")
+			if closeBraceIdx != -1 && closeBraceIdx > braceIdx {
+				// Single-line function: function name() { }
+				bodyContent := trimmed[braceIdx+1:closeBraceIdx]
+				bodyContent = strings.TrimSpace(bodyContent)
+				if bodyContent != "" {
+					bodyParser := NewSimpleParser()
+					bodyParsed, err := bodyParser.ParseString(bodyContent)
+					if err == nil {
+						fnNode := &types.FunctionNode{
+							Pos: types.Position{
+								Line:   lineNum,
+								Column: 1,
+								Offset: 0,
+							},
+							Name: functionName,
+							Body: bodyParsed,
+						}
+						script.Nodes = append(script.Nodes, fnNode)
+					}
+				}
+				continue
+			}
+			
+			// Multi-line function - start collecting body
+			inFunction = true
+			functionStartLine = lineNum
+			functionBody = []string{}
+			continue
+		}
+
 		// Check for annotation
-		if annotation := p.parseAnnotation(line, lineNum); annotation != nil {
+		if annotation := p.parseAnnotation(trimmed, lineNum); annotation != nil {
 			pendingAnnotation = annotation
 			continue
 		}
 
 		// Parse command or assignment
-		node := p.parseCommand(line, lineNum)
+		node := p.parseCommand(trimmed, lineNum)
 		if node != nil {
 			// If we have a pending annotation, associate it with the node
 			if pendingAnnotation != nil {

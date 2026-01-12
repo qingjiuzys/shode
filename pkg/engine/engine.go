@@ -1638,21 +1638,16 @@ func (ee *ExecutionEngine) executeSourceFile(ctx context.Context, filePath strin
 		filePath = filepath.Join(wd, filePath)
 	}
 
-	// Use tree-sitter parser to parse function definitions
-	// SimpleParser doesn't support function parsing yet
-	p := shodeparser.NewParser()
-	script, err := p.ParseFile(filePath)
+	// Use SimpleParser (supports function definitions and is more reliable)
+	// Tree-sitter parser may panic in some environments
+	simpleP := shodeparser.NewSimpleParser()
+	script, err := simpleP.ParseFile(filePath)
 	if err != nil {
-		// Fallback to SimpleParser if tree-sitter fails
-		simpleP := shodeparser.NewSimpleParser()
-		script, err = simpleP.ParseFile(filePath)
-		if err != nil {
-			return &ExecutionResult{
-				Success:  false,
-				ExitCode: 1,
-				Error:    fmt.Sprintf("failed to parse source file %s: %v", filePath, err),
-			}, nil
-		}
+		return &ExecutionResult{
+			Success:  false,
+			ExitCode: 1,
+			Error:    fmt.Sprintf("failed to parse source file %s: %v", filePath, err),
+		}, nil
 	}
 
 	// First pass: extract function definitions (so they're available immediately)
