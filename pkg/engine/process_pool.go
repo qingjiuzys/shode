@@ -3,6 +3,7 @@ package engine
 import (
 	"io"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 )
@@ -86,12 +87,44 @@ func (pp *ProcessPool) Put(entry *ProcessEntry) {
 
 // createProcess creates a new process entry
 func (pp *ProcessPool) createProcess(cmd string, args []string) (*ProcessEntry, error) {
-	// TODO: Implement process creation with proper stdio pipes
-	// This is a placeholder implementation
+	// Create command
+	command := exec.Command(cmd, args...)
+	
+	// Set up stdio pipes
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		return nil, err
+	}
+	
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		stdin.Close()
+		stdout.Close()
+		return nil, err
+	}
+	
+	// Start the process
+	if err := command.Start(); err != nil {
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
+		return nil, err
+	}
+	
 	return &ProcessEntry{
 		cmd:       cmd,
+		process:   command.Process,
 		lastUsed:  time.Now(),
-		isRunning: false, // Will be set to true when process is actually started
+		stdin:     stdin,
+		stdout:    stdout,
+		stderr:    stderr,
+		isRunning: true,
 	}, nil
 }
 

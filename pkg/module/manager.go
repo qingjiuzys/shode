@@ -1,12 +1,14 @@
 package module
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gitee.com/com_818cloud/shode/pkg/environment"
+	"gitee.com/com_818cloud/shode/pkg/errors"
 	"gitee.com/com_818cloud/shode/pkg/parser"
 	"gitee.com/com_818cloud/shode/pkg/types"
 )
@@ -36,7 +38,18 @@ type ModuleInfo struct {
 	Exports     map[string]string `json:"exports,omitempty"`
 }
 
-// NewModuleManager creates a new module manager
+// NewModuleManager creates a new module manager instance.
+//
+// The module manager handles module loading, resolution, and export/import
+// functionality. It automatically initializes an environment manager and
+// parser for module operations.
+//
+// Returns a new ModuleManager instance ready to use.
+//
+// Example:
+//
+//	mm := module.NewModuleManager()
+//	mod, err := mm.LoadModule("./my-module")
 func NewModuleManager() *ModuleManager {
 	return &ModuleManager{
 		envManager: environment.NewEnvironmentManager(),
@@ -63,9 +76,18 @@ func (mm *ModuleManager) LoadModule(path string) (*Module, error) {
 		return nil, fmt.Errorf("module not found: %s", path)
 	}
 
+	// Try to get module name from package.json first
+	moduleName := filepath.Base(absPath)
+	packageJsonPath := filepath.Join(absPath, "package.json")
+	if _, err := os.Stat(packageJsonPath); err == nil {
+		if pkgInfo, err := mm.loadPackageJson(packageJsonPath); err == nil && pkgInfo.Name != "" {
+			moduleName = pkgInfo.Name
+		}
+	}
+
 	// Create new module
 	module := &Module{
-		Name:     filepath.Base(absPath),
+		Name:     moduleName,
 		Path:     absPath,
 		Exports:  make(map[string]*types.CommandNode),
 		Imports:  make(map[string]*Module),
@@ -113,10 +135,23 @@ func (mm *ModuleManager) loadModuleExports(module *Module) error {
 	// Check for package.json first
 	packageJsonPath := filepath.Join(module.Path, "package.json")
 	if _, err := os.Stat(packageJsonPath); err == nil {
-		// TODO: Load package.json and handle main entry point
+		// Load package.json
+		pkgInfo, err := mm.loadPackageJson(packageJsonPath)
+		if err != nil {
+			return fmt.Errorf("failed to load package.json: %v", err)
+		}
+		
+		// Use main entry point from package.json if specified
+		if pkgInfo.Main != "" {
+			mainPath := filepath.Join(module.Path, pkgInfo.Main)
+			if _, err := os.Stat(mainPath); err == nil {
+				return mm.loadScriptExports(module, mainPath)
+			}
+			// If main path doesn't exist, fall through to default behavior
+		}
 	}
 
-	// Look for index.sh
+	// Look for index.sh (default entry point)
 	indexPath := filepath.Join(module.Path, "index.sh")
 	if _, err := os.Stat(indexPath); err == nil {
 		return mm.loadScriptExports(module, indexPath)
@@ -128,7 +163,41 @@ func (mm *ModuleManager) loadModuleExports(module *Module) error {
 		return mm.loadScriptExports(module, moduleScriptPath)
 	}
 
-	return fmt.Errorf("no module entry point found in %s", module.Path)
+	return errors.NewExecutionError(errors.ErrFileNotFound,
+		fmt.Sprintf("no module entry point found in %s", module.Path)).
+		WithContext("module_path", module.Path)
+}
+
+// PackageJson represents a package.json structure
+type PackageJson struct {
+	Name        string            `json:"name"`
+	Version     string            `json:"version"`
+	Description string            `json:"description,omitempty"`
+	Main        string            `json:"main,omitempty"`
+	Exports     map[string]string `json:"exports,omitempty"`
+	Scripts     map[string]string `json:"scripts,omitempty"`
+	Dependencies map[string]string `json:"dependencies,omitempty"`
+	DevDependencies map[string]string `json:"devDependencies,omitempty"`
+}
+
+// loadPackageJson loads and parses a package.json file
+func (mm *ModuleManager) loadPackageJson(path string) (*PackageJson, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	
+	var pkg PackageJson
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil, fmt.Errorf("failed to parse package.json: %v", err)
+	}
+	
+	// Set default main if not specified
+	if pkg.Main == "" {
+		pkg.Main = "index.sh"
+	}
+	
+	return &pkg, nil
 }
 
 // loadScriptExports loads exports from a script file

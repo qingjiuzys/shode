@@ -54,6 +54,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
+	var pendingAnnotation *types.AnnotationNode
 	for scanner.Scan() {
 		lineNum++
 		line := strings.TrimSpace(scanner.Text())
@@ -61,10 +62,21 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 			continue // Skip empty lines and comments
 		}
 
-		// Simple command parsing
-		cmd := p.parseCommand(line, lineNum)
-		if cmd != nil {
-			script.Nodes = append(script.Nodes, cmd)
+		// Check for annotation
+		if annotation := p.parseAnnotation(line, lineNum); annotation != nil {
+			pendingAnnotation = annotation
+			continue
+		}
+
+		// Parse command or assignment
+		node := p.parseCommand(line, lineNum)
+		if node != nil {
+			// If we have a pending annotation, associate it with the node
+			if pendingAnnotation != nil {
+				script.Nodes = append(script.Nodes, pendingAnnotation)
+				pendingAnnotation = nil
+			}
+			script.Nodes = append(script.Nodes, node)
 		}
 	}
 
@@ -75,8 +87,13 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 	return script, nil
 }
 
-// parseCommand parses a single line into a command node
-func (p *SimpleParser) parseCommand(line string, lineNum int) *types.CommandNode {
+// parseCommand parses a single line into a command node or assignment node
+func (p *SimpleParser) parseCommand(line string, lineNum int) types.Node {
+	// Check if this is a variable assignment (var = value)
+	if assignment := p.parseAssignment(line, lineNum); assignment != nil {
+		return assignment
+	}
+
 	// Simple tokenization - split by spaces, handle quotes
 	tokens := p.tokenize(line)
 	if len(tokens) == 0 {
@@ -94,6 +111,62 @@ func (p *SimpleParser) parseCommand(line string, lineNum int) *types.CommandNode
 	}
 
 	return cmd
+}
+
+// parseAssignment parses a variable assignment (var = value)
+func (p *SimpleParser) parseAssignment(line string, lineNum int) *types.AssignmentNode {
+	// Look for = sign (not inside quotes)
+	equalsIndex := -1
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(line); i++ {
+		char := line[i]
+
+		if char == '"' || char == '\'' {
+			if !inQuotes {
+				inQuotes = true
+				quoteChar = char
+			} else if char == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			}
+		} else if char == '=' && !inQuotes {
+			equalsIndex = i
+			break
+		}
+	}
+
+	if equalsIndex == -1 {
+		return nil // Not an assignment
+	}
+
+	// Extract variable name (left side of =)
+	varName := strings.TrimSpace(line[:equalsIndex])
+	if varName == "" {
+		return nil // Invalid assignment
+	}
+
+	// Extract value (right side of =)
+	value := strings.TrimSpace(line[equalsIndex+1:])
+	
+	// Remove quotes if present
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') ||
+			(value[0] == '\'' && value[len(value)-1] == '\'') {
+			value = value[1 : len(value)-1]
+		}
+	}
+
+	return &types.AssignmentNode{
+		Pos: types.Position{
+			Line:   lineNum,
+			Column: 1,
+			Offset: 0,
+		},
+		Name:  varName,
+		Value: value,
+	}
 }
 
 // tokenize splits a command line into tokens, handling quotes
@@ -136,6 +209,41 @@ func (p *SimpleParser) tokenize(line string) []string {
 	return tokens
 }
 
+// parseAnnotation parses an annotation (@AnnotationName or @AnnotationName(value))
+func (p *SimpleParser) parseAnnotation(line string, lineNum int) *types.AnnotationNode {
+	if !strings.HasPrefix(line, "@") {
+		return nil
+	}
+
+	// Remove @
+	content := strings.TrimPrefix(line, "@")
+	
+	// Check for value in parentheses
+	var name, value string
+	if idx := strings.Index(content, "("); idx != -1 {
+		name = strings.TrimSpace(content[:idx])
+		if strings.HasSuffix(content, ")") {
+			value = strings.TrimSpace(content[idx+1 : len(content)-1])
+		}
+	} else {
+		name = strings.TrimSpace(content)
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	return &types.AnnotationNode{
+		Pos: types.Position{
+			Line:   lineNum,
+			Column: 1,
+			Offset: 0,
+		},
+		Name:  name,
+		Value: value,
+	}
+}
+
 // DebugPrint prints debug information about parsing
 func (p *SimpleParser) DebugPrint(source string) {
 	fmt.Println("Simple parser debug output:")
@@ -147,10 +255,15 @@ func (p *SimpleParser) DebugPrint(source string) {
 		return
 	}
 
-	fmt.Printf("Parsed %d commands:\n", len(script.Nodes))
+	fmt.Printf("Parsed %d nodes:\n", len(script.Nodes))
 	for i, node := range script.Nodes {
-		if cmd, ok := node.(*types.CommandNode); ok {
-			fmt.Printf("  %d: %s %v (line %d)\n", i+1, cmd.Name, cmd.Args, cmd.Pos.Line)
+		switch n := node.(type) {
+		case *types.CommandNode:
+			fmt.Printf("  %d: %s %v (line %d)\n", i+1, n.Name, n.Args, n.Pos.Line)
+		case *types.AssignmentNode:
+			fmt.Printf("  %d: %s = %s (line %d)\n", i+1, n.Name, n.Value, n.Pos.Line)
+		case *types.AnnotationNode:
+			fmt.Printf("  %d: @%s(%s) (line %d)\n", i+1, n.Name, n.Value, n.Pos.Line)
 		}
 	}
 }

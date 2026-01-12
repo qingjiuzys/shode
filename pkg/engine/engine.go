@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	"gitee.com/com_818cloud/shode/pkg/environment"
+	"gitee.com/com_818cloud/shode/pkg/errors"
+	"gitee.com/com_818cloud/shode/pkg/metrics"
 	"gitee.com/com_818cloud/shode/pkg/module"
 	"gitee.com/com_818cloud/shode/pkg/sandbox"
 	"gitee.com/com_818cloud/shode/pkg/stdlib"
@@ -32,6 +35,8 @@ type ExecutionEngine struct {
 	security    *sandbox.SecurityChecker
 	processPool *ProcessPool
 	cache       *CommandCache
+	functions   map[string]*types.FunctionNode // User-defined functions
+	metrics     *metrics.MetricsCollector       // Performance metrics collector
 }
 
 // ExecutionResult represents the result of executing an AST
@@ -42,6 +47,8 @@ type ExecutionResult struct {
 	Error      string
 	Duration   time.Duration
 	Commands   []*CommandResult
+	BreakFlag  bool // Set to true if break statement was encountered
+	ContinueFlag bool // Set to true if continue statement was encountered
 }
 
 // CommandResult represents the result of a single command execution
@@ -78,26 +85,75 @@ func NewExecutionEngine(
 		security:   security,
 		processPool: NewProcessPool(10, 30*time.Second),
 		cache:       NewCommandCache(1000),
+		functions:  make(map[string]*types.FunctionNode),
+		metrics:    metrics.NewMetricsCollector(),
 	}
 }
 
-// Execute executes a complete script
+// Execute executes a complete script and returns the execution result.
+//
+// The method processes all nodes in the script sequentially, handling commands,
+// pipelines, control flow statements, and function calls. It checks for context
+// cancellation to support timeout handling.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout support
+//   - script: The script AST to execute
+//
+// Returns:
+//   - ExecutionResult: Contains success status, exit code, output, and command results
+//   - error: Returns error if execution fails or context is cancelled
+//
+// Example:
+//
+//	script := &types.ScriptNode{
+//	    Nodes: []types.Node{
+//	        &types.CommandNode{Name: "echo", Args: []string{"hello"}},
+//	    },
+//	}
+//	result, err := ee.Execute(ctx, script)
 func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode) (*ExecutionResult, error) {
 	startTime := time.Now()
-	
+
+	// Check for context cancellation before starting
+	if ctx.Err() != nil {
+		return nil, errors.NewTimeoutError("script execution").
+			WithContext("reason", ctx.Err().Error())
+	}
+
 	result := &ExecutionResult{
 		Commands: make([]*CommandResult, 0, len(script.Nodes)),
 	}
 
 	for _, node := range script.Nodes {
+		// Check for context cancellation during execution
+		if ctx.Err() != nil {
+			result.Success = false
+			result.ExitCode = 1
+			result.Error = "execution cancelled or timed out"
+			return result, errors.NewTimeoutError("script execution").
+				WithContext("reason", ctx.Err().Error())
+		}
 		switch n := node.(type) {
 		case *types.CommandNode:
+			// Check for break/continue commands
+			if n.Name == "break" {
+				result.BreakFlag = true
+				result.Success = true
+				return result, nil
+			}
+			if n.Name == "continue" {
+				result.ContinueFlag = true
+				result.Success = true
+				return result, nil
+			}
+
 			cmdResult, err := ee.ExecuteCommand(ctx, n)
 			if err != nil {
 				return nil, err
 			}
 			result.Commands = append(result.Commands, cmdResult)
-			
+
 			if !cmdResult.Success {
 				result.Success = false
 				result.ExitCode = cmdResult.ExitCode
@@ -111,7 +167,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, pipeResult.Results...)
-			
+
 			if !pipeResult.Success {
 				result.Success = false
 				result.ExitCode = pipeResult.ExitCode
@@ -125,7 +181,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, ifResult.Commands...)
-			
+
 			if !ifResult.Success {
 				result.Success = false
 				result.ExitCode = ifResult.ExitCode
@@ -139,7 +195,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, forResult.Commands...)
-			
+
 			if !forResult.Success {
 				result.Success = false
 				result.ExitCode = forResult.ExitCode
@@ -153,7 +209,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, whileResult.Commands...)
-			
+
 			if !whileResult.Success {
 				result.Success = false
 				result.ExitCode = whileResult.ExitCode
@@ -164,12 +220,31 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			// Execute variable assignment
 			ee.envManager.SetEnv(n.Name, n.Value)
 
+		case *types.AnnotationNode:
+			// Process annotation (register with annotation processor)
+			// For now, annotations are parsed but not processed
+			// Full integration requires annotation processor integration
+
 		case *types.FunctionNode:
 			// Store function definition (not executing it)
-			// TODO: Implement function storage and execution
-			
+			ee.functions[n.Name] = n
+
+		case *types.BreakNode:
+			// Set break flag
+			result.BreakFlag = true
+			result.Success = true
+			return result, nil
+
+		case *types.ContinueNode:
+			// Set continue flag
+			result.ContinueFlag = true
+			result.Success = true
+			return result, nil
+
 		default:
-			return nil, fmt.Errorf("unsupported node type: %T", n)
+			return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+				fmt.Sprintf("unsupported node type: %T", n)).
+				WithContext("node_type", fmt.Sprintf("%T", n))
 		}
 	}
 
@@ -178,12 +253,42 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 	return result, nil
 }
 
-// ExecuteCommand executes a single command
+// ExecuteCommand executes a single command and returns the result.
+//
+// The method performs security checks, determines execution mode (interpreted,
+// process, or hybrid), and executes the command accordingly. Results are cached
+// for performance when appropriate.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout support
+//   - cmd: The command node to execute
+//
+// Returns:
+//   - CommandResult: Contains command output, exit code, and execution metadata
+//   - error: Returns error if execution fails
+//
+// Example:
+//
+//	cmd := &types.CommandNode{
+//	    Name: "echo",
+//	    Args: []string{"hello", "world"},
+//	}
+//	result, err := ee.ExecuteCommand(ctx, cmd)
 func (ee *ExecutionEngine) ExecuteCommand(ctx context.Context, cmd *types.CommandNode) (*CommandResult, error) {
 	startTime := time.Now()
 
+	// Expand variables in command arguments
+	expandedArgs := ee.expandArgs(cmd.Args)
+	// Create a copy of command with expanded args
+	expandedCmd := &types.CommandNode{
+		Pos:      cmd.Pos,
+		Name:     cmd.Name,
+		Args:     expandedArgs,
+		Redirect: cmd.Redirect,
+	}
+
 	// Security check
-	if err := ee.security.CheckCommand(cmd); err != nil {
+	if err := ee.security.CheckCommand(expandedCmd); err != nil {
 		return &CommandResult{
 			Command:  cmd,
 			Success:  false,
@@ -194,20 +299,23 @@ func (ee *ExecutionEngine) ExecuteCommand(ctx context.Context, cmd *types.Comman
 	}
 
 	// Decide execution mode
-	mode := ee.decideExecutionMode(cmd)
+	mode := ee.decideExecutionMode(expandedCmd)
 
 	var result *CommandResult
 	var err error
 
 	switch mode {
 	case ModeInterpreted:
-		result, err = ee.executeInterpreted(ctx, cmd)
+		result, err = ee.executeInterpreted(ctx, expandedCmd)
 	case ModeProcess:
-		result, err = ee.executeProcess(ctx, cmd)
+		result, err = ee.executeProcess(ctx, expandedCmd)
 	case ModeHybrid:
-		result, err = ee.executeHybrid(ctx, cmd)
+		result, err = ee.executeHybrid(ctx, expandedCmd)
 	default:
-		return nil, fmt.Errorf("unknown execution mode: %v", mode)
+		return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+			fmt.Sprintf("unknown execution mode: %v", mode)).
+			WithContext("mode", mode).
+			WithContext("command", cmd.Name)
 	}
 
 	if err != nil {
@@ -224,13 +332,13 @@ func (ee *ExecutionEngine) ExecutePipeline(ctx context.Context, pipeline *types.
 	// Collect all commands in the pipeline
 	commands := ee.collectPipelineCommands(pipeline)
 	results := make([]*CommandResult, 0, len(commands))
-	
+
 	// Execute commands with piped data flow
 	var previousOutput string
 	for i, cmd := range commands {
 		var result *CommandResult
 		var err error
-		
+
 		if i == 0 {
 			// First command - execute normally
 			result, err = ee.ExecuteCommand(ctx, cmd)
@@ -238,13 +346,13 @@ func (ee *ExecutionEngine) ExecutePipeline(ctx context.Context, pipeline *types.
 			// Subsequent commands - use previous output as input
 			result, err = ee.ExecuteCommandWithInput(ctx, cmd, previousOutput)
 		}
-		
+
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = append(results, result)
-		
+
 		// If command failed, stop pipeline
 		if !result.Success {
 			return &PipelineResult{
@@ -255,11 +363,11 @@ func (ee *ExecutionEngine) ExecutePipeline(ctx context.Context, pipeline *types.
 				Results:  results,
 			}, nil
 		}
-		
+
 		// Store output for next command
 		previousOutput = result.Output
 	}
-	
+
 	// Return final result
 	lastResult := results[len(results)-1]
 	return &PipelineResult{
@@ -274,7 +382,7 @@ func (ee *ExecutionEngine) ExecutePipeline(ctx context.Context, pipeline *types.
 // collectPipelineCommands collects all commands from a pipeline tree
 func (ee *ExecutionEngine) collectPipelineCommands(node types.Node) []*types.CommandNode {
 	var commands []*types.CommandNode
-	
+
 	switch n := node.(type) {
 	case *types.PipeNode:
 		// Recursively collect left commands
@@ -284,14 +392,14 @@ func (ee *ExecutionEngine) collectPipelineCommands(node types.Node) []*types.Com
 	case *types.CommandNode:
 		commands = append(commands, n)
 	}
-	
+
 	return commands
 }
 
 // ExecuteCommandWithInput executes a command with input data
 func (ee *ExecutionEngine) ExecuteCommandWithInput(ctx context.Context, cmd *types.CommandNode, input string) (*CommandResult, error) {
 	startTime := time.Now()
-	
+
 	// Security check
 	if err := ee.security.CheckCommand(cmd); err != nil {
 		return &CommandResult{
@@ -302,13 +410,13 @@ func (ee *ExecutionEngine) ExecuteCommandWithInput(ctx context.Context, cmd *typ
 			Duration: time.Since(startTime),
 		}, nil
 	}
-	
+
 	// Execute process with input
 	result, err := ee.executeProcessWithInput(ctx, cmd, input)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	result.Duration = time.Since(startTime)
 	result.Mode = ModeProcess
 	return result, nil
@@ -316,9 +424,9 @@ func (ee *ExecutionEngine) ExecuteCommandWithInput(ctx context.Context, cmd *typ
 
 // executeProcessWithInput executes a command with stdin input
 func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *types.CommandNode, input string) (*CommandResult, error) {
-	// Create command with context
+	// Create command with context for timeout support
 	command := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
-	
+
 	// Set environment
 	envVars := make([]string, 0, len(ee.envManager.GetAllEnv()))
 	for key, value := range ee.envManager.GetAllEnv() {
@@ -326,19 +434,30 @@ func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *typ
 	}
 	command.Env = envVars
 	command.Dir = ee.envManager.GetWorkingDir()
-	
-	// Set up pipes
+
+	// Set up pipes with resource cleanup
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stdin pipe: %v", err)
+		return nil, errors.WrapError(errors.ErrExecutionFailed,
+			"failed to create stdin pipe", err).
+			WithContext("command", cmd.Name)
 	}
-	
+
+	// Ensure stdin is closed on exit (resource cleanup)
+	defer func() {
+		if stdin != nil {
+			stdin.Close()
+		}
+	}()
+
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	
+
 	// Start command
 	if err := command.Start(); err != nil {
+		// Clean up stdin before returning
+		stdin.Close()
 		return &CommandResult{
 			Command:  cmd,
 			Success:  false,
@@ -346,15 +465,40 @@ func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *typ
 			Error:    err.Error(),
 		}, nil
 	}
-	
+
 	// Write input to stdin
 	if _, err := stdin.Write([]byte(input)); err != nil {
-		return nil, fmt.Errorf("failed to write to stdin: %v", err)
+		// Clean up process if write fails
+		if command.Process != nil {
+			command.Process.Kill()
+		}
+		stdin.Close()
+		return nil, errors.WrapError(errors.ErrExecutionFailed,
+			"failed to write to stdin", err).
+			WithContext("command", cmd.Name)
 	}
 	stdin.Close()
-	
-	// Wait for command to complete
+	stdin = nil // Mark as closed to prevent double close in defer
+
+	// Wait for command to complete with timeout handling
 	err = command.Wait()
+
+	// Check for context cancellation (timeout)
+	if ctx.Err() != nil {
+		// Clean up process if still running
+		if command.Process != nil {
+			command.Process.Kill()
+		}
+		return &CommandResult{
+			Command:  cmd,
+			Success:  false,
+			ExitCode: 124, // Standard timeout exit code
+			Error:    "command execution timed out",
+		}, errors.NewTimeoutError(cmd.Name).
+			WithContext("command", cmd.Name).
+			WithContext("args", cmd.Args)
+	}
+
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -363,7 +507,7 @@ func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *typ
 			exitCode = 1
 		}
 	}
-	
+
 	return &CommandResult{
 		Command:  cmd,
 		Success:  err == nil,
@@ -377,6 +521,11 @@ func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *typ
 func (ee *ExecutionEngine) decideExecutionMode(cmd *types.CommandNode) ExecutionMode {
 	// Check if it's a standard library function
 	if ee.isStdLibFunction(cmd.Name) {
+		return ModeInterpreted
+	}
+
+	// Check if it's a user-defined function
+	if ee.isUserDefinedFunction(cmd.Name) {
 		return ModeInterpreted
 	}
 
@@ -398,29 +547,74 @@ func (ee *ExecutionEngine) decideExecutionMode(cmd *types.CommandNode) Execution
 func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 	// Map of standard library functions
 	stdlibFunctions := map[string]bool{
-		"Print":      true,
-		"Println":    true,
-		"Error":      true,
-		"Errorln":    true,
-		"ReadFile":   true,
-		"WriteFile":  true,
-		"ListFiles":  true,
-		"FileExists": true,
-		"Contains":   true,
-		"Replace":    true,
-		"ToUpper":    true,
-		"ToLower":    true,
-		"Trim":       true,
-		"GetEnv":     true,
-		"SetEnv":     true,
-		"WorkingDir": true,
-		"ChangeDir":  true,
+		"Print":                    true,
+		"Println":                  true,
+		"Error":                    true,
+		"Errorln":                  true,
+		"ReadFile":                 true,
+		"WriteFile":                true,
+		"ListFiles":                true,
+		"FileExists":               true,
+		"Contains":                 true,
+		"Replace":                  true,
+		"ToUpper":                  true,
+		"ToLower":                  true,
+		"Trim":                     true,
+		"GetEnv":                   true,
+		"SetEnv":                   true,
+		"WorkingDir":               true,
+		"ChangeDir":                 true,
+		"StartHTTPServer":          true,
+		"RegisterRoute":            true,
+		"RegisterHTTPRoute":        true,
+		"RegisterRouteWithResponse": true,
+		"StopHTTPServer":           true,
+		"IsHTTPServerRunning":      true,
+		"GetHTTPMethod":            true,
+		"GetHTTPPath":              true,
+		"GetHTTPQuery":             true,
+		"GetHTTPHeader":            true,
+		"GetHTTPBody":              true,
+		"SetHTTPResponse":          true,
+		"SetHTTPHeader":            true,
+		"SetCache":                 true,
+		"GetCache":                 true,
+		"DeleteCache":              true,
+		"ClearCache":               true,
+		"CacheExists":              true,
+		"GetCacheTTL":              true,
+		"SetCacheBatch":            true,
+		"GetCacheKeys":             true,
+		"ConnectDB":                true,
+		"CloseDB":                  true,
+		"IsDBConnected":            true,
+		"QueryDB":                  true,
+		"QueryRowDB":               true,
+		"ExecDB":                   true,
+		"GetQueryResult":           true,
+		// IoC functions
+		"RegisterBean":             true,
+		"GetBean":                  true,
+		"ContainsBean":             true,
+		// Config functions
+		"LoadConfig":               true,
+		"LoadConfigWithEnv":        true,
+		"GetConfig":                true,
+		"GetConfigString":          true,
+		"GetConfigInt":             true,
+		"GetConfigBool":            true,
+		"SetConfig":                true,
 	}
 	return stdlibFunctions[funcName]
 }
 
 // executeInterpreted executes a command using the interpreter (built-in functions)
 func (ee *ExecutionEngine) executeInterpreted(ctx context.Context, cmd *types.CommandNode) (*CommandResult, error) {
+	// Check if it's a user-defined function
+	if fn, exists := ee.functions[cmd.Name]; exists {
+		return ee.executeUserFunction(ctx, fn, cmd.Args)
+	}
+
 	// Execute using standard library
 	result, err := ee.executeStdLibFunction(cmd.Name, cmd.Args)
 	if err != nil {
@@ -445,14 +639,18 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 	switch funcName {
 	case "Print":
 		if len(args) > 0 {
-			ee.stdlib.Print(args[0])
-			return args[0], nil
+			// Expand variables in the argument
+			expanded := ee.expandVariables(args[0])
+			ee.stdlib.Print(expanded)
+			return expanded, nil
 		}
 		return "", nil
 	case "Println":
 		if len(args) > 0 {
-			ee.stdlib.Println(args[0])
-			return args[0], nil
+			// Expand variables in the argument
+			expanded := ee.expandVariables(args[0])
+			ee.stdlib.Println(expanded)
+			return expanded, nil
 		}
 		ee.stdlib.Println("")
 		return "", nil
@@ -471,14 +669,21 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		return "", nil
 	case "ReadFile":
 		if len(args) == 0 {
-			return "", fmt.Errorf("ReadFile requires filename argument")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"ReadFile requires filename argument").
+				WithContext("function", "ReadFile")
 		}
 		return ee.stdlib.ReadFile(args[0])
 	case "WriteFile":
 		if len(args) < 2 {
-			return "", fmt.Errorf("WriteFile requires filename and content arguments")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"WriteFile requires filename and content arguments").
+				WithContext("function", "WriteFile")
 		}
-		err := ee.stdlib.WriteFile(args[0], args[1])
+		// Expand variables in arguments
+		filename := ee.expandVariables(args[0])
+		content := ee.expandVariables(args[1])
+		err := ee.stdlib.WriteFile(filename, content)
 		return "File written", err
 	case "ListFiles":
 		if len(args) == 0 {
@@ -495,19 +700,25 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		return strings.Join(files, "\n"), nil
 	case "FileExists":
 		if len(args) == 0 {
-			return "", fmt.Errorf("FileExists requires filename argument")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"FileExists requires filename argument").
+				WithContext("function", "FileExists")
 		}
 		exists := ee.stdlib.FileExists(args[0])
 		return fmt.Sprintf("%v", exists), nil
 	case "Contains":
 		if len(args) < 2 {
-			return "", fmt.Errorf("Contains requires haystack and needle arguments")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"Contains requires haystack and needle arguments").
+				WithContext("function", "Contains")
 		}
 		contains := ee.stdlib.Contains(args[0], args[1])
 		return fmt.Sprintf("%v", contains), nil
 	case "Replace":
 		if len(args) < 3 {
-			return "", fmt.Errorf("Replace requires string, old, and new arguments")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"Replace requires string, old, and new arguments").
+				WithContext("function", "Replace")
 		}
 		return ee.stdlib.Replace(args[0], args[1], args[2]), nil
 	case "ToUpper":
@@ -527,12 +738,16 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		return ee.stdlib.Trim(args[0]), nil
 	case "GetEnv":
 		if len(args) == 0 {
-			return "", fmt.Errorf("GetEnv requires environment variable name")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetEnv requires environment variable name").
+				WithContext("function", "GetEnv")
 		}
 		return ee.stdlib.GetEnv(args[0]), nil
 	case "SetEnv":
 		if len(args) < 2 {
-			return "", fmt.Errorf("SetEnv requires key and value arguments")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetEnv requires key and value arguments").
+				WithContext("function", "SetEnv")
 		}
 		err := ee.stdlib.SetEnv(args[0], args[1])
 		return "Environment variable set", err
@@ -544,12 +759,353 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		return wd, nil
 	case "ChangeDir":
 		if len(args) == 0 {
-			return "", fmt.Errorf("ChangeDir requires directory path")
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"ChangeDir requires directory path").
+				WithContext("function", "ChangeDir")
 		}
 		err := ee.stdlib.ChangeDir(args[0])
 		return "Directory changed", err
+	case "StartHTTPServer":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"StartHTTPServer requires port argument").
+				WithContext("function", "StartHTTPServer")
+		}
+		err := ee.stdlib.StartHTTPServer(args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("HTTP server started on port %s", args[0]), nil
+	case "RegisterRoute":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterRoute requires path and handler arguments").
+				WithContext("function", "RegisterRoute")
+		}
+		err := ee.stdlib.RegisterRoute(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Route registered: %s -> %s", args[0], args[1]), nil
+	case "RegisterHTTPRoute":
+		if len(args) < 4 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterHTTPRoute requires method, path, handlerType, and handler arguments").
+				WithContext("function", "RegisterHTTPRoute")
+		}
+		err := ee.stdlib.RegisterHTTPRoute(args[0], args[1], args[2], args[3])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("HTTP route registered: %s %s -> %s (%s)", args[0], args[1], args[3], args[2]), nil
+	case "RegisterRouteWithResponse":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterRouteWithResponse requires path and response arguments").
+				WithContext("function", "RegisterRouteWithResponse")
+		}
+		err := ee.stdlib.RegisterRouteWithResponse(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Route registered: %s", args[0]), nil
+	case "StopHTTPServer":
+		err := ee.stdlib.StopHTTPServer()
+		if err != nil {
+			return "", err
+		}
+		return "HTTP server stopped", nil
+	case "IsHTTPServerRunning":
+		running := ee.stdlib.IsHTTPServerRunning()
+		return fmt.Sprintf("%v", running), nil
+	case "GetHTTPMethod":
+		return ee.stdlib.GetHTTPMethod(), nil
+	case "GetHTTPPath":
+		return ee.stdlib.GetHTTPPath(), nil
+	case "GetHTTPQuery":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetHTTPQuery requires key argument").
+				WithContext("function", "GetHTTPQuery")
+		}
+		return ee.stdlib.GetHTTPQuery(args[0]), nil
+	case "GetHTTPHeader":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetHTTPHeader requires name argument").
+				WithContext("function", "GetHTTPHeader")
+		}
+		return ee.stdlib.GetHTTPHeader(args[0]), nil
+	case "GetHTTPBody":
+		return ee.stdlib.GetHTTPBody(), nil
+	case "SetHTTPResponse":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetHTTPResponse requires status and body arguments").
+				WithContext("function", "SetHTTPResponse")
+		}
+		status, err := strconv.Atoi(args[0])
+		if err != nil {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				fmt.Sprintf("invalid status code: %s", args[0])).
+				WithContext("function", "SetHTTPResponse")
+		}
+		ee.stdlib.SetHTTPResponse(status, args[1])
+		return "Response set", nil
+	case "SetHTTPHeader":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetHTTPHeader requires name and value arguments").
+				WithContext("function", "SetHTTPHeader")
+		}
+		ee.stdlib.SetHTTPHeader(args[0], args[1])
+		return "Header set", nil
+	case "SetCache":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetCache requires key and value arguments").
+				WithContext("function", "SetCache")
+		}
+		ttl := 0
+		if len(args) >= 3 {
+			var err error
+			ttl, err = strconv.Atoi(args[2])
+			if err != nil {
+				return "", errors.NewExecutionError(errors.ErrInvalidInput,
+					fmt.Sprintf("invalid TTL: %s", args[2])).
+					WithContext("function", "SetCache")
+			}
+		}
+		ee.stdlib.SetCache(args[0], args[1], ttl)
+		return "Cache set", nil
+	case "GetCache":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetCache requires key argument").
+				WithContext("function", "GetCache")
+		}
+		value, exists := ee.stdlib.GetCache(args[0])
+		if !exists {
+			return "", errors.NewExecutionError(errors.ErrFileNotFound,
+				fmt.Sprintf("cache key not found: %s", args[0])).
+				WithContext("function", "GetCache")
+		}
+		return value, nil
+	case "DeleteCache":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"DeleteCache requires key argument").
+				WithContext("function", "DeleteCache")
+		}
+		ee.stdlib.DeleteCache(args[0])
+		return "Cache deleted", nil
+	case "ClearCache":
+		ee.stdlib.ClearCache()
+		return "Cache cleared", nil
+	case "CacheExists":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"CacheExists requires key argument").
+				WithContext("function", "CacheExists")
+		}
+		exists := ee.stdlib.CacheExists(args[0])
+		return fmt.Sprintf("%v", exists), nil
+	case "GetCacheTTL":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetCacheTTL requires key argument").
+				WithContext("function", "GetCacheTTL")
+		}
+		ttl := ee.stdlib.GetCacheTTL(args[0])
+		return fmt.Sprintf("%d", ttl), nil
+	case "GetCacheKeys":
+		pattern := "*"
+		if len(args) > 0 {
+			pattern = args[0]
+		}
+		keys := ee.stdlib.GetCacheKeys(pattern)
+		return strings.Join(keys, "\n"), nil
+	case "ConnectDB":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"ConnectDB requires dbType and dsn arguments").
+				WithContext("function", "ConnectDB")
+		}
+		err := ee.stdlib.ConnectDB(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return "Database connected", nil
+	case "CloseDB":
+		err := ee.stdlib.CloseDB()
+		if err != nil {
+			return "", err
+		}
+		return "Database closed", nil
+	case "IsDBConnected":
+		connected := ee.stdlib.IsDBConnected()
+		return fmt.Sprintf("%v", connected), nil
+	case "QueryDB":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"QueryDB requires sql argument").
+				WithContext("function", "QueryDB")
+		}
+		result, err := ee.stdlib.QueryDB(args[0], args[1:]...)
+		if err != nil {
+			return "", err
+		}
+		jsonResult, err := result.ToJSON()
+		if err != nil {
+			return "", err
+		}
+		return jsonResult, nil
+	case "QueryRowDB":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"QueryRowDB requires sql argument").
+				WithContext("function", "QueryRowDB")
+		}
+		result, err := ee.stdlib.QueryRowDB(args[0], args[1:]...)
+		if err != nil {
+			return "", err
+		}
+		jsonResult, err := result.ToJSON()
+		if err != nil {
+			return "", err
+		}
+		return jsonResult, nil
+	case "ExecDB":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"ExecDB requires sql argument").
+				WithContext("function", "ExecDB")
+		}
+		result, err := ee.stdlib.ExecDB(args[0], args[1:]...)
+		if err != nil {
+			return "", err
+		}
+		jsonResult, err := result.ToJSON()
+		if err != nil {
+			return "", err
+		}
+		return jsonResult, nil
+	case "GetQueryResult":
+		result, err := ee.stdlib.GetQueryResult()
+		if err != nil {
+			return "", err
+		}
+		return result, nil
+	// IoC functions
+	case "RegisterBean":
+		if len(args) < 3 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterBean requires name, scope, and factory arguments").
+				WithContext("function", "RegisterBean")
+		}
+		// Note: Factory function needs to be passed as a function reference
+		// For now, this is a placeholder - full implementation requires function references
+		return "Bean registration requires function reference (not yet fully implemented)", nil
+	case "GetBean":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetBean requires name argument").
+				WithContext("function", "GetBean")
+		}
+		bean, err := ee.stdlib.GetBean(args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%v", bean), nil
+	case "ContainsBean":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"ContainsBean requires name argument").
+				WithContext("function", "ContainsBean")
+		}
+		exists := ee.stdlib.ContainsBean(args[0])
+		return fmt.Sprintf("%v", exists), nil
+	// Config functions
+	case "LoadConfig":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"LoadConfig requires path argument").
+				WithContext("function", "LoadConfig")
+		}
+		err := ee.stdlib.LoadConfig(args[0])
+		if err != nil {
+			return "", err
+		}
+		return "Config loaded", nil
+	case "LoadConfigWithEnv":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"LoadConfigWithEnv requires path and env arguments").
+				WithContext("function", "LoadConfigWithEnv")
+		}
+		err := ee.stdlib.LoadConfigWithEnv(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return "Config loaded", nil
+	case "GetConfig":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetConfig requires key argument").
+				WithContext("function", "GetConfig")
+		}
+		value, err := ee.stdlib.GetConfig(args[0])
+		if err != nil {
+			return "", err
+		}
+		return value, nil
+	case "GetConfigString":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetConfigString requires key and defaultValue arguments").
+				WithContext("function", "GetConfigString")
+		}
+		return ee.stdlib.GetConfigString(args[0], args[1]), nil
+	case "GetConfigInt":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetConfigInt requires key and defaultValue arguments").
+				WithContext("function", "GetConfigInt")
+		}
+		defaultValue, err := strconv.Atoi(args[1])
+		if err != nil {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				fmt.Sprintf("invalid default value: %s", args[1])).
+				WithContext("function", "GetConfigInt")
+		}
+		return fmt.Sprintf("%d", ee.stdlib.GetConfigInt(args[0], defaultValue)), nil
+	case "GetConfigBool":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetConfigBool requires key and defaultValue arguments").
+				WithContext("function", "GetConfigBool")
+		}
+		defaultValue := args[1] == "true"
+		return fmt.Sprintf("%v", ee.stdlib.GetConfigBool(args[0], defaultValue)), nil
+	case "SetConfig":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetConfig requires key and value arguments").
+				WithContext("function", "SetConfig")
+		}
+		ee.stdlib.SetConfig(args[0], args[1])
+		return "Config set", nil
+	case "AddMiddleware":
+		// Note: Middleware registration requires function reference
+		// For now, this is a placeholder
+		return "Middleware registration requires function reference (not yet fully implemented)", nil
+	case "ClearMiddlewares":
+		ee.stdlib.ClearMiddlewares()
+		return "Middlewares cleared", nil
 	default:
-		return "", fmt.Errorf("unknown standard library function: %s", funcName)
+		return "", errors.NewExecutionError(errors.ErrExecutionFailed,
+			fmt.Sprintf("unknown standard library function: %s", funcName)).
+			WithContext("function", funcName)
 	}
 }
 
@@ -592,10 +1148,24 @@ func (ee *ExecutionEngine) executeProcess(ctx context.Context, cmd *types.Comman
 		command.Stderr = &stderr
 	}
 
-	// Execute command
+	// Execute command with timeout handling
 	startTime := time.Now()
 	err := command.Run()
 	duration := time.Since(startTime)
+
+	// Check for context cancellation (timeout)
+	if ctx.Err() != nil {
+		// Context was cancelled - likely timeout
+		return &CommandResult{
+			Command:  cmd,
+			Success:  false,
+			ExitCode: 124, // Standard timeout exit code
+			Error:    "command execution timed out",
+			Duration: duration,
+		}, errors.NewTimeoutError(cmd.Name).
+			WithContext("command", cmd.Name).
+			WithContext("args", cmd.Args)
+	}
 
 	// Get exit code
 	exitCode := 0
@@ -630,53 +1200,65 @@ func (ee *ExecutionEngine) setupRedirect(cmd *exec.Cmd, redirect *types.Redirect
 	case ">": // Output redirection (overwrite)
 		file, err := os.Create(redirect.File)
 		if err != nil {
-			return fmt.Errorf("failed to create file %s: %v", redirect.File, err)
+			return errors.WrapError(errors.ErrFileNotFound,
+				fmt.Sprintf("failed to create file %s", redirect.File), err).
+				WithContext("file", redirect.File).
+				WithContext("operation", "create")
 		}
 		defer file.Close()
-		
+
 		if redirect.Fd == 1 || redirect.Fd == 0 { // stdout
 			cmd.Stdout = file
 		} else if redirect.Fd == 2 { // stderr
 			cmd.Stderr = file
 		}
-		
+
 	case ">>": // Output redirection (append)
 		file, err := os.OpenFile(redirect.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			return fmt.Errorf("failed to open file %s: %v", redirect.File, err)
+			return errors.WrapError(errors.ErrFileNotFound,
+				fmt.Sprintf("failed to open file %s", redirect.File), err).
+				WithContext("file", redirect.File).
+				WithContext("operation", "append")
 		}
 		defer file.Close()
-		
+
 		if redirect.Fd == 1 || redirect.Fd == 0 {
 			cmd.Stdout = file
 		} else if redirect.Fd == 2 {
 			cmd.Stderr = file
 		}
-		
+
 	case "<": // Input redirection
 		file, err := os.Open(redirect.File)
 		if err != nil {
-			return fmt.Errorf("failed to open file %s: %v", redirect.File, err)
+			return errors.NewFileNotFoundError(redirect.File).
+				WithContext("operation", "read")
 		}
 		defer file.Close()
 		cmd.Stdin = file
-		
+
 	case "2>&1": // Redirect stderr to stdout
 		cmd.Stderr = cmd.Stdout
-		
+
 	case "&>": // Redirect both stdout and stderr to file
 		file, err := os.Create(redirect.File)
 		if err != nil {
-			return fmt.Errorf("failed to create file %s: %v", redirect.File, err)
+			return errors.WrapError(errors.ErrFileNotFound,
+				fmt.Sprintf("failed to create file %s", redirect.File), err).
+				WithContext("file", redirect.File).
+				WithContext("operation", "create")
 		}
 		defer file.Close()
 		cmd.Stdout = file
 		cmd.Stderr = file
-		
+
 	default:
-		return fmt.Errorf("unsupported redirect operator: %s", redirect.Op)
+		return errors.NewExecutionError(errors.ErrInvalidInput,
+			fmt.Sprintf("unsupported redirect operator: %s", redirect.Op)).
+			WithContext("operator", redirect.Op)
 	}
-	
+
 	return nil
 }
 
@@ -700,14 +1282,14 @@ func (ee *ExecutionEngine) ExecuteIf(ctx context.Context, ifNode *types.IfNode) 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Execute appropriate branch
 	if conditionResult {
 		return ee.Execute(ctx, ifNode.Then)
 	} else if ifNode.Else != nil {
 		return ee.Execute(ctx, ifNode.Else)
 	}
-	
+
 	// No else branch and condition was false
 	return &ExecutionResult{
 		Success:  true,
@@ -721,28 +1303,42 @@ func (ee *ExecutionEngine) ExecuteFor(ctx context.Context, forNode *types.ForNod
 	result := &ExecutionResult{
 		Commands: make([]*CommandResult, 0),
 	}
-	
+
 	// Iterate over the list
 	for _, item := range forNode.List {
 		// Set loop variable
 		ee.envManager.SetEnv(forNode.Variable, item)
-		
+
 		// Execute loop body
 		loopResult, err := ee.Execute(ctx, forNode.Body)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		result.Commands = append(result.Commands, loopResult.Commands...)
-		
-		// Check for break/continue (TODO: implement break/continue support)
+
+		// Check for break statement
+		if loopResult.BreakFlag {
+			// Break out of loop
+			result.Success = true
+			result.ExitCode = 0
+			return result, nil
+		}
+
+		// Check for continue statement
+		if loopResult.ContinueFlag {
+			// Continue to next iteration
+			continue
+		}
+
+		// Check for errors
 		if !loopResult.Success {
 			result.Success = false
 			result.ExitCode = loopResult.ExitCode
 			return result, nil
 		}
 	}
-	
+
 	result.Success = true
 	result.ExitCode = 0
 	return result, nil
@@ -753,36 +1349,53 @@ func (ee *ExecutionEngine) ExecuteWhile(ctx context.Context, whileNode *types.Wh
 	result := &ExecutionResult{
 		Commands: make([]*CommandResult, 0),
 	}
-	
+
 	maxIterations := 10000 // Safety limit to prevent infinite loops
 	iterations := 0
-	
+
 	for {
 		// Check iteration limit
 		if iterations >= maxIterations {
-			return nil, fmt.Errorf("while loop exceeded maximum iterations (%d)", maxIterations)
+			return nil, errors.NewExecutionError(errors.ErrResourceExhausted,
+				fmt.Sprintf("while loop exceeded maximum iterations (%d)", maxIterations)).
+				WithContext("max_iterations", maxIterations).
+				WithContext("iterations", iterations)
 		}
 		iterations++
-		
+
 		// Evaluate condition
 		conditionResult, err := ee.evaluateCondition(ctx, whileNode.Condition)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Exit loop if condition is false
 		if !conditionResult {
 			break
 		}
-		
+
 		// Execute loop body
 		loopResult, err := ee.Execute(ctx, whileNode.Body)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		result.Commands = append(result.Commands, loopResult.Commands...)
-		
+
+		// Check for break statement
+		if loopResult.BreakFlag {
+			// Break out of loop
+			result.Success = true
+			result.ExitCode = 0
+			return result, nil
+		}
+
+		// Check for continue statement
+		if loopResult.ContinueFlag {
+			// Continue to next iteration
+			continue
+		}
+
 		// Check for errors
 		if !loopResult.Success {
 			result.Success = false
@@ -790,7 +1403,7 @@ func (ee *ExecutionEngine) ExecuteWhile(ctx context.Context, whileNode *types.Wh
 			return result, nil
 		}
 	}
-	
+
 	result.Success = true
 	result.ExitCode = 0
 	return result, nil
@@ -806,9 +1419,94 @@ func (ee *ExecutionEngine) evaluateCondition(ctx context.Context, condition type
 			return false, err
 		}
 		return cmdResult.Success && cmdResult.ExitCode == 0, nil
-		
+
 	default:
-		return false, fmt.Errorf("unsupported condition node type: %T", n)
+		return false, errors.NewExecutionError(errors.ErrExecutionFailed,
+			fmt.Sprintf("unsupported condition node type: %T", n)).
+			WithContext("node_type", fmt.Sprintf("%T", n))
+	}
+}
+
+// isUserDefinedFunction checks if a function is user-defined
+func (ee *ExecutionEngine) isUserDefinedFunction(funcName string) bool {
+	_, exists := ee.functions[funcName]
+	return exists
+}
+
+// executeUserFunction executes a user-defined function
+func (ee *ExecutionEngine) executeUserFunction(ctx context.Context, fn *types.FunctionNode, args []string) (*CommandResult, error) {
+	startTime := time.Now()
+
+	// Save current environment state for function scope
+	originalEnv := make(map[string]string)
+	for k, v := range ee.envManager.GetAllEnv() {
+		originalEnv[k] = v
+	}
+
+	// Set function arguments as environment variables ($1, $2, etc.)
+	// Also support $0 for function name, $@ for all arguments, $# for argument count
+	ee.envManager.SetEnv("0", fn.Name)
+	ee.envManager.SetEnv("#", fmt.Sprintf("%d", len(args)))
+	ee.envManager.SetEnv("@", strings.Join(args, " "))
+
+	for i, arg := range args {
+		ee.envManager.SetEnv(fmt.Sprintf("%d", i+1), arg)
+	}
+
+	// Execute function body
+	result, err := ee.Execute(ctx, fn.Body)
+	if err != nil {
+		// Restore environment
+		ee.restoreEnvironment(originalEnv)
+		return &CommandResult{
+			Command: &types.CommandNode{
+				Name: fn.Name,
+				Args: args,
+			},
+			Success:  false,
+			ExitCode: 1,
+			Error:    err.Error(),
+			Duration: time.Since(startTime),
+		}, nil
+	}
+
+	// Restore environment (function scope isolation)
+	ee.restoreEnvironment(originalEnv)
+
+	// Collect output from all commands
+	var output strings.Builder
+	for _, cmdResult := range result.Commands {
+		if cmdResult.Output != "" {
+			output.WriteString(cmdResult.Output)
+			if !strings.HasSuffix(cmdResult.Output, "\n") {
+				output.WriteString("\n")
+			}
+		}
+	}
+
+	return &CommandResult{
+		Command: &types.CommandNode{
+			Name: fn.Name,
+			Args: args,
+		},
+		Success:  result.Success,
+		ExitCode: result.ExitCode,
+		Output:   strings.TrimSuffix(output.String(), "\n"),
+		Duration: time.Since(startTime),
+	}, nil
+}
+
+// restoreEnvironment restores the environment to a previous state
+func (ee *ExecutionEngine) restoreEnvironment(env map[string]string) {
+	// Clear current environment
+	currentEnv := ee.envManager.GetAllEnv()
+	for k := range currentEnv {
+		ee.envManager.UnsetEnv(k)
+	}
+
+	// Restore original environment
+	for k, v := range env {
+		ee.envManager.SetEnv(k, v)
 	}
 }
 

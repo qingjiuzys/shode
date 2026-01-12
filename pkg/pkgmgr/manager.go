@@ -1,13 +1,21 @@
 package pkg
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gitee.com/com_818cloud/shode/pkg/environment"
+	"gitee.com/com_818cloud/shode/pkg/errors"
 	"gitee.com/com_818cloud/shode/pkg/registry"
 )
 
@@ -39,7 +47,18 @@ type PackageInfo struct {
 	Repository  string `json:"repository,omitempty"`
 }
 
-// NewPackageManager creates a new package manager
+// NewPackageManager creates a new package manager instance.
+//
+// The package manager handles package initialization, dependency management,
+// script execution, and registry operations. It automatically initializes
+// a registry client with default configuration.
+//
+// Returns a new PackageManager instance ready to use.
+//
+// Example:
+//
+//	pm := pkg.NewPackageManager()
+//	err := pm.Init("my-package", "1.0.0")
 func NewPackageManager() *PackageManager {
 	// Initialize registry client with default config
 	registryClient, _ := registry.NewClient(nil)
@@ -76,16 +95,21 @@ func (pm *PackageManager) LoadConfig() error {
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("shode.json not found. Run 'shode pkg init' first")
+		return errors.NewFileNotFoundError(configPath).
+			WithContext("message", "Run 'shode pkg init' first")
 	}
 
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read shode.json: %v", err)
+		return errors.WrapError(errors.ErrFileNotFound,
+			"failed to read shode.json", err).
+			WithContext("path", configPath)
 	}
 
 	if err := json.Unmarshal(data, &pm.config); err != nil {
-		return fmt.Errorf("failed to parse shode.json: %v", err)
+		return errors.WrapError(errors.ErrParseError,
+			"failed to parse shode.json", err).
+			WithContext("path", configPath)
 	}
 
 	// Initialize maps if they are nil
@@ -105,12 +129,15 @@ func (pm *PackageManager) LoadConfig() error {
 // SaveConfig saves the package configuration to shode.json
 func (pm *PackageManager) SaveConfig() error {
 	if pm.configPath == "" {
-		return fmt.Errorf("config path not set")
+		return errors.NewExecutionError(errors.ErrInvalidInput,
+			"config path not set")
 	}
 
 	data, err := json.MarshalIndent(pm.config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %v", err)
+		return errors.WrapError(errors.ErrExecutionFailed,
+			"failed to marshal config", err).
+			WithContext("path", pm.configPath)
 	}
 
 	return ioutil.WriteFile(pm.configPath, data, 0644)
@@ -178,7 +205,9 @@ func (pm *PackageManager) Install() error {
 	wd := pm.envManager.GetWorkingDir()
 	shModelsPath := filepath.Join(wd, "sh_models")
 	if err := os.MkdirAll(shModelsPath, 0755); err != nil {
-		return fmt.Errorf("failed to create sh_models directory: %v", err)
+		return errors.WrapError(errors.ErrFileNotFound,
+			"failed to create sh_models directory", err).
+			WithContext("path", shModelsPath)
 	}
 
 	// Install dependencies
@@ -196,7 +225,10 @@ func (pm *PackageManager) Install() error {
 			// Fallback to local installation if registry fails
 			fmt.Printf("  Registry installation failed, using local fallback...\n")
 			if err := pm.installPackage(name, version); err != nil {
-				return fmt.Errorf("failed to install %s: %v", name, err)
+				return errors.WrapError(errors.ErrExecutionFailed,
+					fmt.Sprintf("failed to install %s", name), err).
+					WithContext("package", name).
+					WithContext("version", version)
 			}
 		}
 	}
@@ -338,9 +370,12 @@ func (pm *PackageManager) Publish() error {
 		Main:        "index.sh",
 	}
 
-	// TODO: Create tarball from package files
-	// For now, use placeholder
-	tarballData := []byte("placeholder tarball")
+	// Create tarball from package files
+	wd := pm.envManager.GetWorkingDir()
+	tarballData, err := createTarball(wd)
+	if err != nil {
+		return fmt.Errorf("failed to create tarball: %v", err)
+	}
 	checksum := calculateChecksum(tarballData)
 
 	req := &registry.PublishRequest{
@@ -357,12 +392,110 @@ func (pm *PackageManager) GetRegistryClient() *registry.Client {
 	return pm.registryClient
 }
 
-// calculateChecksum is a helper function (duplicated from registry package)
+// calculateChecksum calculates SHA256 checksum of data
 func calculateChecksum(data []byte) string {
-	// Use a simple checksum for now
-	sum := 0
-	for _, b := range data {
-		sum += int(b)
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
+}
+
+// createTarball creates a tar.gz archive from the package directory
+func createTarball(sourceDir string) ([]byte, error) {
+	var buf bytes.Buffer
+	
+	// Create gzip writer
+	gzw := gzip.NewWriter(&buf)
+	defer gzw.Close()
+	
+	// Create tar writer
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+	
+	// Files and directories to exclude
+	excludePatterns := []string{
+		".git",
+		"node_modules",
+		"sh_models",
+		".shode",
+		"*.log",
+		".DS_Store",
+		"Thumbs.db",
 	}
-	return fmt.Sprintf("%x", sum)
+	
+	// Walk the directory
+	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Skip the root directory itself
+		if path == sourceDir {
+			return nil
+		}
+		
+		// Check if path should be excluded
+		relPath, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		
+		// Check exclusion patterns
+		for _, pattern := range excludePatterns {
+			if matched, _ := filepath.Match(pattern, relPath); matched {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Check if path starts with pattern (for directories)
+			if strings.HasPrefix(relPath, pattern) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+		
+		// Create tar header
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		
+		// Set the name to be relative to source directory
+		header.Name = relPath
+		
+		// Write header
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		
+		// Write file content if it's a regular file
+		if !info.IsDir() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			
+			if _, err := io.Copy(tw, file); err != nil {
+				return err
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Close writers to flush data
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	if err := gzw.Close(); err != nil {
+		return nil, err
+	}
+	
+	return buf.Bytes(), nil
 }

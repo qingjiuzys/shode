@@ -31,28 +31,37 @@ func NewCommandCache(maxSize int) *CommandCache {
 }
 
 // Get retrieves a command result from cache
+// Optimized: Reduce lock contention by checking expiration before incrementing counters
 func (cc *CommandCache) Get(cmd string, args []string) (*CommandResult, bool) {
 	key := cc.generateKey(cmd, args)
+	now := time.Now()
 
 	cc.mu.RLock()
 	entry, exists := cc.cache[key]
 	cc.mu.RUnlock()
 
 	if !exists {
+		cc.mu.Lock()
 		cc.missCount++
+		cc.mu.Unlock()
 		return nil, false
 	}
 
 	// Check if entry is expired
-	if time.Now().After(entry.expires) {
+	if now.After(entry.expires) {
 		cc.mu.Lock()
-		delete(cc.cache, key)
-		cc.mu.Unlock()
+		// Double-check after acquiring write lock
+		if entry, stillExists := cc.cache[key]; stillExists && now.After(entry.expires) {
+			delete(cc.cache, key)
+		}
 		cc.missCount++
+		cc.mu.Unlock()
 		return nil, false
 	}
 
+	cc.mu.Lock()
 	cc.hitCount++
+	cc.mu.Unlock()
 	return entry.result, true
 }
 
@@ -110,14 +119,21 @@ func (cc *CommandCache) generateKey(cmd string, args []string) uint64 {
 }
 
 // evictOldest evicts the oldest entry from cache
+// Optimized: Use single pass with early exit for better performance
 func (cc *CommandCache) evictOldest() {
+	if len(cc.cache) == 0 {
+		return
+	}
+
 	var oldestKey uint64
 	var oldestTime time.Time
+	first := true
 
 	for key, entry := range cc.cache {
-		if oldestTime.IsZero() || entry.timestamp.Before(oldestTime) {
+		if first || entry.timestamp.Before(oldestTime) {
 			oldestTime = entry.timestamp
 			oldestKey = key
+			first = false
 		}
 	}
 

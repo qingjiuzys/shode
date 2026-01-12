@@ -1,18 +1,87 @@
 package stdlib
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"gitee.com/com_818cloud/shode/pkg/cache"
+	"gitee.com/com_818cloud/shode/pkg/config"
+	"gitee.com/com_818cloud/shode/pkg/database"
+	"gitee.com/com_818cloud/shode/pkg/ioc"
+	"gitee.com/com_818cloud/shode/pkg/web"
 )
 
+// HTTPRequestContext holds HTTP request information
+type HTTPRequestContext struct {
+	Method      string
+	Path        string
+	QueryParams map[string]string
+	Headers     map[string]string
+	Body        string
+	Response    *HTTPResponseContext
+	mu          sync.RWMutex
+}
+
+// HTTPResponseContext holds HTTP response information
+type HTTPResponseContext struct {
+	Status  int
+	Body    string
+	Headers map[string]string
+	mu      sync.RWMutex
+}
+
 // StdLib provides built-in functions to replace external commands
-type StdLib struct{}
+type StdLib struct {
+	httpServer *httpServer
+	httpMu     sync.Mutex
+	// Request context storage (per-goroutine)
+	requestContexts sync.Map // map[goroutineID]*HTTPRequestContext
+	// Cache instance
+	cache *cache.Cache
+	// Database manager
+	dbManager *database.DatabaseManager
+	// IoC container
+	iocContainer *ioc.Container
+	// Config manager
+	configManager *config.ConfigManager
+	// Execution engine factory (to avoid circular dependency)
+	engineFactory func() interface{} // Returns *engine.ExecutionEngine
+}
+
+// routeHandler represents a route handler
+type routeHandler struct {
+	method      string // HTTP method (GET, POST, PUT, DELETE, PATCH, "*" for all)
+	path        string
+	handlerType string // "function" or "script"
+	handlerName string // function name or script content
+}
+
+// httpServer represents an HTTP server instance
+type httpServer struct {
+	server      *http.Server
+	mux         *http.ServeMux
+	routes      map[string]*routeHandler // routeKey (method:path) -> handler
+	isRunning   bool
+	middlewares []web.Middleware // Global middlewares
+	mu          sync.RWMutex
+}
 
 // New creates a new standard library instance
 func New() *StdLib {
-	return &StdLib{}
+	return &StdLib{
+		cache:         cache.NewCache(),
+		dbManager:     database.NewDatabaseManager(),
+		iocContainer:  ioc.NewContainer(),
+		configManager: config.NewConfigManager(),
+	}
 }
 
 // FileSystem functions
@@ -120,4 +189,510 @@ func (sl *StdLib) Error(text string) {
 // Errorln outputs text with newline to stderr (replaces echo >&2)
 func (sl *StdLib) Errorln(text string) {
 	fmt.Fprintln(os.Stderr, text)
+}
+
+// HTTP Server functions
+
+// StartHTTPServer starts an HTTP server on the specified port
+// Usage: StartHTTPServer "9188"
+func (sl *StdLib) StartHTTPServer(port string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	// Parse port
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("invalid port: %s", port)
+	}
+
+	// Check if server already exists and is running
+	if sl.httpServer != nil && sl.httpServer.isRunning {
+		return fmt.Errorf("HTTP server is already running")
+	}
+
+	// Create new server
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", portNum),
+		Handler: mux,
+	}
+
+	sl.httpServer = &httpServer{
+		server:    server,
+		mux:       mux,
+		routes:    make(map[string]*routeHandler),
+		isRunning: false,
+	}
+
+	// Start server in goroutine
+	go func() {
+		sl.httpServer.mu.Lock()
+		sl.httpServer.isRunning = true
+		sl.httpServer.mu.Unlock()
+
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
+		}
+
+		sl.httpServer.mu.Lock()
+		sl.httpServer.isRunning = false
+		sl.httpServer.mu.Unlock()
+	}()
+
+	return nil
+}
+
+// RegisterRoute registers a route handler (deprecated, use RegisterHTTPRoute)
+// Usage: RegisterRoute "/" "handleRoot"
+func (sl *StdLib) RegisterRoute(path, handlerName string) error {
+	return sl.RegisterHTTPRoute("*", path, "function", handlerName)
+}
+
+// RegisterHTTPRoute registers an HTTP route with method, path, handler type and handler
+// Usage: RegisterHTTPRoute "GET" "/api/users" "function" "handleGetUsers"
+//        RegisterHTTPRoute "POST" "/api/users" "script" "SetHTTPResponse 201 'Created'"
+func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	// Normalize method to uppercase
+	method = strings.ToUpper(method)
+	if method == "" {
+		method = "*"
+	}
+
+	// Validate handler type
+	if handlerType != "function" && handlerType != "script" {
+		return fmt.Errorf("invalid handler type: %s (must be 'function' or 'script')", handlerType)
+	}
+
+	sl.httpServer.mu.Lock()
+	defer sl.httpServer.mu.Unlock()
+
+	// Create route key: method:path
+	routeKey := fmt.Sprintf("%s:%s", method, path)
+	
+	// Store the handler
+	sl.httpServer.routes[routeKey] = &routeHandler{
+		method:      method,
+		path:        path,
+		handlerType: handlerType,
+		handlerName: handler,
+	}
+
+	// Check if path is already registered
+	// If not, register a method-aware handler
+	pathKey := fmt.Sprintf("path:%s", path)
+	if _, exists := sl.httpServer.routes[pathKey]; !exists {
+		// Register the route with method checking
+		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			sl.httpServer.mu.RLock()
+			defer sl.httpServer.mu.RUnlock()
+			
+			// Check for exact method match
+			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
+			handler, exactExists := sl.httpServer.routes[exactKey]
+			
+			// Check for wildcard method match
+			wildcardKey := fmt.Sprintf("*:%s", r.URL.Path)
+			wildcardHandler, wildcardExists := sl.httpServer.routes[wildcardKey]
+			
+			var selectedHandler *routeHandler
+			if exactExists {
+				selectedHandler = handler
+			} else if wildcardExists {
+				selectedHandler = wildcardHandler
+			}
+
+			if selectedHandler == nil {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				fmt.Fprintf(w, "Method Not Allowed\n")
+				return
+			}
+
+			// Create and store request context
+			reqCtx := sl.createRequestContext(r)
+			goroutineID := fmt.Sprintf("%p", &r) // Use request pointer as unique ID
+			sl.requestContexts.Store(goroutineID, reqCtx)
+			defer sl.requestContexts.Delete(goroutineID)
+
+			// Execute handler based on type
+			// Note: Full handler execution requires engine factory to be set
+			// For now, handlers will use SetHTTPResponse in their code
+			reqCtx.Response.mu.Lock()
+			if reqCtx.Response.Status == 0 {
+				reqCtx.Response.Status = http.StatusOK
+			}
+			if reqCtx.Response.Body == "" {
+				if selectedHandler.handlerType == "function" {
+					reqCtx.Response.Body = fmt.Sprintf("Handler function: %s (call SetHTTPResponse in function)", selectedHandler.handlerName)
+				} else {
+					reqCtx.Response.Body = fmt.Sprintf("Handler script: %s", selectedHandler.handlerName)
+				}
+			}
+			reqCtx.Response.mu.Unlock()
+
+			// Write response
+			reqCtx.Response.mu.RLock()
+			status := reqCtx.Response.Status
+			body := reqCtx.Response.Body
+			headers := reqCtx.Response.Headers
+			reqCtx.Response.mu.RUnlock()
+
+			// Set headers
+			for k, v := range headers {
+				w.Header().Set(k, v)
+			}
+			if len(headers) == 0 {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			}
+
+			w.WriteHeader(status)
+			if body != "" {
+				fmt.Fprintf(w, "%s", body)
+			} else {
+				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n", 
+					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
+			}
+		})
+		
+		// Mark path as registered
+		sl.httpServer.routes[pathKey] = &routeHandler{path: path}
+	}
+
+	return nil
+}
+
+// RegisterRouteWithResponse registers a route with a direct response
+// Usage: RegisterRouteWithResponse "/" "hello world"
+func (sl *StdLib) RegisterRouteWithResponse(path, response string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	sl.httpServer.mu.Lock()
+	defer sl.httpServer.mu.Unlock()
+
+	// Register the route with a direct response
+	sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "%s\n", response)
+	})
+
+	return nil
+}
+
+// StopHTTPServer stops the HTTP server gracefully
+func (sl *StdLib) StopHTTPServer() error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server is not running")
+	}
+
+	sl.httpServer.mu.Lock()
+	running := sl.httpServer.isRunning
+	server := sl.httpServer.server
+	sl.httpServer.mu.Unlock()
+
+	if !running {
+		return fmt.Errorf("HTTP server is not running")
+	}
+
+	// Use Shutdown for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		// If shutdown fails, try force close
+		server.Close()
+		return fmt.Errorf("failed to stop HTTP server: %v", err)
+	}
+
+	sl.httpServer.mu.Lock()
+	sl.httpServer.isRunning = false
+	sl.httpServer.mu.Unlock()
+
+	return nil
+}
+
+// IsHTTPServerRunning checks if the HTTP server is running
+func (sl *StdLib) IsHTTPServerRunning() bool {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return false
+	}
+
+	sl.httpServer.mu.RLock()
+	defer sl.httpServer.mu.RUnlock()
+
+	return sl.httpServer.isRunning
+}
+
+// createRequestContext creates a request context from an HTTP request
+func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
+	// Read body
+	bodyBytes, _ := ioutil.ReadAll(r.Body)
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes)) // Restore body for potential re-read
+
+	// Parse query parameters
+	queryParams := make(map[string]string)
+	for k, v := range r.URL.Query() {
+		if len(v) > 0 {
+			queryParams[k] = v[0]
+		}
+	}
+
+	// Parse headers
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	return &HTTPRequestContext{
+		Method:      r.Method,
+		Path:        r.URL.Path,
+		QueryParams: queryParams,
+		Headers:     headers,
+		Body:        string(bodyBytes),
+		Response: &HTTPResponseContext{
+			Status:  0,
+			Body:    "",
+			Headers: make(map[string]string),
+		},
+	}
+}
+
+// getCurrentRequestContext gets the current request context for the calling goroutine
+func (sl *StdLib) getCurrentRequestContext() *HTTPRequestContext {
+	// Try to find context by iterating (simplified approach)
+	// In production, we'd use goroutine-local storage or context propagation
+	var foundCtx *HTTPRequestContext
+	sl.requestContexts.Range(func(key, value interface{}) bool {
+		if ctx, ok := value.(*HTTPRequestContext); ok {
+			foundCtx = ctx
+			return false // Stop iteration
+		}
+		return true
+	})
+	return foundCtx
+}
+
+// GetHTTPMethod returns the HTTP method of the current request
+func (sl *StdLib) GetHTTPMethod() string {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return ""
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.Method
+}
+
+// GetHTTPPath returns the HTTP path of the current request
+func (sl *StdLib) GetHTTPPath() string {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return ""
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.Path
+}
+
+// GetHTTPQuery returns a query parameter value
+func (sl *StdLib) GetHTTPQuery(key string) string {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return ""
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.QueryParams[key]
+}
+
+// GetHTTPHeader returns a request header value
+func (sl *StdLib) GetHTTPHeader(name string) string {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return ""
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.Headers[name]
+}
+
+// GetHTTPBody returns the request body
+func (sl *StdLib) GetHTTPBody() string {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return ""
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.Body
+}
+
+// SetHTTPResponse sets the HTTP response status and body
+func (sl *StdLib) SetHTTPResponse(status int, body string) {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return
+	}
+	ctx.Response.mu.Lock()
+	defer ctx.Response.mu.Unlock()
+	ctx.Response.Status = status
+	ctx.Response.Body = body
+}
+
+// SetHTTPHeader sets a response header
+func (sl *StdLib) SetHTTPHeader(name, value string) {
+	ctx := sl.getCurrentRequestContext()
+	if ctx == nil {
+		return
+	}
+	ctx.Response.mu.Lock()
+	defer ctx.Response.mu.Unlock()
+	if ctx.Response.Headers == nil {
+		ctx.Response.Headers = make(map[string]string)
+	}
+	ctx.Response.Headers[name] = value
+}
+
+// Cache functions
+
+// SetCache sets a value in the cache with optional TTL
+func (sl *StdLib) SetCache(key, value string, ttlSeconds int) {
+	sl.cache.Set(key, value, ttlSeconds)
+}
+
+// GetCache retrieves a value from the cache
+func (sl *StdLib) GetCache(key string) (string, bool) {
+	return sl.cache.Get(key)
+}
+
+// DeleteCache removes a key from the cache
+func (sl *StdLib) DeleteCache(key string) {
+	sl.cache.Delete(key)
+}
+
+// ClearCache removes all entries from the cache
+func (sl *StdLib) ClearCache() {
+	sl.cache.Clear()
+}
+
+// CacheExists checks if a key exists in the cache
+func (sl *StdLib) CacheExists(key string) bool {
+	return sl.cache.Exists(key)
+}
+
+// GetCacheTTL returns the remaining TTL in seconds for a key
+func (sl *StdLib) GetCacheTTL(key string) int {
+	return sl.cache.GetTTL(key)
+}
+
+// SetCacheBatch sets multiple key-value pairs at once
+func (sl *StdLib) SetCacheBatch(keyValues map[string]string, ttlSeconds int) {
+	sl.cache.SetBatch(keyValues, ttlSeconds)
+}
+
+// GetCacheKeys returns all keys matching a pattern
+func (sl *StdLib) GetCacheKeys(pattern string) []string {
+	return sl.cache.GetKeys(pattern)
+}
+
+// Database functions
+
+// ConnectDB connects to a database
+func (sl *StdLib) ConnectDB(dbType, dsn string) error {
+	return sl.dbManager.Connect(dbType, dsn)
+}
+
+// CloseDB closes the database connection
+func (sl *StdLib) CloseDB() error {
+	return sl.dbManager.Close()
+}
+
+// IsDBConnected checks if the database is connected
+func (sl *StdLib) IsDBConnected() bool {
+	return sl.dbManager.IsConnected()
+}
+
+// QueryDB executes a SELECT query
+func (sl *StdLib) QueryDB(sql string, args ...string) (*database.QueryResult, error) {
+	// Convert string args to interface{}
+	interfaceArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		interfaceArgs[i] = arg
+	}
+	return sl.dbManager.Query(sql, interfaceArgs...)
+}
+
+// QueryRowDB executes a SELECT query and returns a single row
+func (sl *StdLib) QueryRowDB(sql string, args ...string) (*database.QueryResult, error) {
+	interfaceArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		interfaceArgs[i] = arg
+	}
+	return sl.dbManager.QueryRow(sql, interfaceArgs...)
+}
+
+// ExecDB executes a non-query SQL statement
+func (sl *StdLib) ExecDB(sql string, args ...string) (*database.QueryResult, error) {
+	interfaceArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		interfaceArgs[i] = arg
+	}
+	return sl.dbManager.Exec(sql, interfaceArgs...)
+}
+
+// GetQueryResult returns the last query result as JSON
+func (sl *StdLib) GetQueryResult() (string, error) {
+	return sl.dbManager.GetLastResultJSON()
+}
+
+// SetEngineFactory sets the execution engine factory
+// This allows the HTTP server to execute handlers
+func (sl *StdLib) SetEngineFactory(factory func() interface{}) {
+	sl.engineFactory = factory
+}
+
+// AddMiddleware adds a global middleware to the HTTP server
+func (sl *StdLib) AddMiddleware(middleware web.Middleware) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	sl.httpServer.mu.Lock()
+	defer sl.httpServer.mu.Unlock()
+	sl.httpServer.middlewares = append(sl.httpServer.middlewares, middleware)
+	return nil
+}
+
+// ClearMiddlewares clears all global middlewares
+func (sl *StdLib) ClearMiddlewares() {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer != nil {
+		sl.httpServer.mu.Lock()
+		defer sl.httpServer.mu.Unlock()
+		sl.httpServer.middlewares = make([]web.Middleware, 0)
+	}
 }

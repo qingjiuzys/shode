@@ -105,3 +105,29 @@ type AssignmentNode struct {
 
 func (n *AssignmentNode) Position() Position { return n.Pos }
 func (n *AssignmentNode) String() string     { return "assignment" }
+
+// BreakNode represents a break statement
+type BreakNode struct {
+	Pos Position
+}
+
+func (n *BreakNode) Position() Position { return n.Pos }
+func (n *BreakNode) String() string     { return "break" }
+
+// ContinueNode represents a continue statement
+type ContinueNode struct {
+	Pos Position
+}
+
+func (n *ContinueNode) Position() Position { return n.Pos }
+func (n *ContinueNode) String() string     { return "continue" }
+
+// AnnotationNode represents an annotation
+type AnnotationNode struct {
+	Pos   Position
+	Name  string
+	Value string
+}
+
+func (n *AnnotationNode) Position() Position { return n.Pos }
+func (n *AnnotationNode) String() string     { return "annotation" }

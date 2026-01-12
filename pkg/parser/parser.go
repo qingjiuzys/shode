@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"gitee.com/com_818cloud/shode/pkg/types"
@@ -42,8 +43,14 @@ func (p *Parser) ParseString(source string) (*types.ScriptNode, error) {
 
 // ParseFile parses a shell script from a file
 func (p *Parser) ParseFile(filename string) (*types.ScriptNode, error) {
-	// TODO: Implement file reading and parsing
-	return nil, fmt.Errorf("ParseFile not implemented yet")
+	// Read file content
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file %s: %v", filename, err)
+	}
+
+	// Parse the content using ParseString
+	return p.ParseString(string(content))
 }
 
 // buildAST converts tree-sitter nodes to our AST structure
