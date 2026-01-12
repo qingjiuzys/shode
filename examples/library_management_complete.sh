@@ -1,0 +1,518 @@
+#!/usr/bin/env shode
+
+# Authentication functions
+
+# Login Function
+function login(username, password) {
+    # Hash the password
+    passwordHash = SHA256Hash password
+    
+    # Query user from database
+    QueryRowDB "SELECT id, username, password_hash FROM users WHERE username = ?" username
+    result = GetQueryResult
+    
+    # Check if user exists and password matches
+    if Contains result passwordHash {
+        # Generate session token (simplified)
+        sessionToken = SHA256Hash username + passwordHash + "session"
+        SetCache "session:" + sessionToken username 3600
+        SetEnv "login_token" sessionToken
+        SetEnv "login_success" "true"
+    } else {
+        SetEnv "login_token" ""
+        SetEnv "login_success" "false"
+    }
+}
+
+# Authentication Middleware
+function checkAuth() {
+    token = GetHTTPHeader "Authorization"
+    if token == "" {
+        SetHTTPResponse 401 "Unauthorized: Missing token"
+        SetEnv "auth_valid" "false"
+        return
+    }
+    
+    # Remove "Bearer " prefix if present
+    if Contains token "Bearer " {
+        token = Replace token "Bearer " ""
+    }
+    
+    # Check session in cache
+    cacheKey = "session:" + token
+    username = GetCache cacheKey
+    if username == "" {
+        SetHTTPResponse 401 "Unauthorized: Invalid token"
+        SetEnv "auth_valid" "false"
+        return
+    }
+    
+    SetEnv "current_user" username
+    SetEnv "auth_valid" "true"
+}
+#!/usr/bin/env shode
+
+# Book Management Functions
+
+function listBooks() {
+    categoryId = GetHTTPQuery "category_id"
+    
+    if categoryId != "" {
+        QueryDB "SELECT b.id, b.title, b.author, b.isbn, c.name as category, b.price, b.stock FROM books b LEFT JOIN categories c ON b.category_id = c.id WHERE b.category_id = ? ORDER BY b.title" categoryId
+    } else {
+        QueryDB "SELECT b.id, b.title, b.author, b.isbn, c.name as category, b.price, b.stock FROM books b LEFT JOIN categories c ON b.category_id = c.id ORDER BY b.title"
+    }
+    
+    result = GetQueryResult
+    SetHTTPHeader "Content-Type" "application/json"
+    SetHTTPResponse 200 result
+}
+
+function getBook() {
+    bookId = GetHTTPQuery "id"
+    
+    if bookId == "" {
+        SetHTTPResponse 400 "Book ID is required"
+        return
+    }
+    
+    QueryRowDB "SELECT b.id, b.title, b.author, b.isbn, c.name as category, b.price, b.stock FROM books b LEFT JOIN categories c ON b.category_id = c.id WHERE b.id = ?" bookId
+    result = GetQueryResult
+    
+    if result == "" {
+        SetHTTPResponse 404 "Book not found"
+        return
+    }
+    
+    SetHTTPHeader "Content-Type" "application/json"
+    SetHTTPResponse 200 result
+}
+
+function createBook() {
+    title = GetHTTPQuery "title"
+    author = GetHTTPQuery "author"
+    isbn = GetHTTPQuery "isbn"
+    categoryId = GetHTTPQuery "category_id"
+    price = GetHTTPQuery "price"
+    stock = GetHTTPQuery "stock"
+    
+    if title == "" {
+        SetHTTPResponse 400 "Book title is required"
+        return
+    }
+    
+    if stock == "" {
+        stock = "0"
+    }
+    if price == "" {
+        price = "0"
+    }
+    
+    ExecDB "INSERT INTO books (title, author, isbn, category_id, price, stock) VALUES (?, ?, ?, ?, ?, ?)" title author isbn categoryId price stock
+    SetHTTPResponse 201 "Book created"
+}
+
+function updateBook() {
+    bookId = GetHTTPQuery "id"
+    title = GetHTTPQuery "title"
+    author = GetHTTPQuery "author"
+    isbn = GetHTTPQuery "isbn"
+    categoryId = GetHTTPQuery "category_id"
+    price = GetHTTPQuery "price"
+    stock = GetHTTPQuery "stock"
+    
+    if bookId == "" {
+        SetHTTPResponse 400 "Book ID is required"
+        return
+    }
+    
+    if title != "" {
+        ExecDB "UPDATE books SET title = ? WHERE id = ?" title bookId
+    }
+    if author != "" {
+        ExecDB "UPDATE books SET author = ? WHERE id = ?" author bookId
+    }
+    if isbn != "" {
+        ExecDB "UPDATE books SET isbn = ? WHERE id = ?" isbn bookId
+    }
+    if categoryId != "" {
+        ExecDB "UPDATE books SET category_id = ? WHERE id = ?" categoryId bookId
+    }
+    if price != "" {
+        ExecDB "UPDATE books SET price = ? WHERE id = ?" price bookId
+    }
+    if stock != "" {
+        ExecDB "UPDATE books SET stock = ? WHERE id = ?" stock bookId
+    }
+    
+    SetHTTPResponse 200 "Book updated"
+}
+
+function deleteBook() {
+    bookId = GetHTTPQuery "id"
+    
+    if bookId == "" {
+        SetHTTPResponse 400 "Book ID is required"
+        return
+    }
+    
+    ExecDB "DELETE FROM books WHERE id = ?" bookId
+    SetHTTPResponse 200 "Book deleted"
+}
+#!/usr/bin/env shode
+
+# Category Management Functions
+
+function listCategories() {
+    QueryDB "SELECT id, name, description FROM categories ORDER BY name"
+    result = GetQueryResult
+    SetHTTPHeader "Content-Type" "application/json"
+    SetHTTPResponse 200 result
+}
+
+function createCategory() {
+    name = GetHTTPQuery "name"
+    description = GetHTTPQuery "description"
+    
+    if name == "" {
+        SetHTTPResponse 400 "Category name is required"
+        return
+    }
+    
+    ExecDB "INSERT INTO categories (name, description) VALUES (?, ?)" name description
+    SetHTTPResponse 201 "Category created"
+}
+
+function updateCategory() {
+    categoryId = GetHTTPQuery "id"
+    name = GetHTTPQuery "name"
+    description = GetHTTPQuery "description"
+    
+    if categoryId == "" {
+        SetHTTPResponse 400 "Category ID is required"
+        return
+    }
+    
+    if name != "" {
+        ExecDB "UPDATE categories SET name = ? WHERE id = ?" name categoryId
+    }
+    if description != "" {
+        ExecDB "UPDATE categories SET description = ? WHERE id = ?" description categoryId
+    }
+    
+    SetHTTPResponse 200 "Category updated"
+}
+
+function deleteCategory() {
+    categoryId = GetHTTPQuery "id"
+    
+    if categoryId == "" {
+        SetHTTPResponse 400 "Category ID is required"
+        return
+    }
+    
+    # Check if category has books
+    QueryRowDB "SELECT COUNT(*) FROM books WHERE category_id = ?" categoryId
+    bookCount = GetQueryResult
+    
+    if Contains bookCount "0" {
+        ExecDB "DELETE FROM categories WHERE id = ?" categoryId
+        SetHTTPResponse 200 "Category deleted"
+    } else {
+        SetHTTPResponse 400 "Cannot delete category with books"
+    }
+}
+#!/usr/bin/env shode
+
+# Database initialization and setup
+
+function initDatabase() {
+    Println "Step 1: Initializing database..."
+    dbPath = "test/tmp/library.db"
+    ConnectDB "sqlite" dbPath
+    Println "Database connected: " + dbPath
+    
+    # Create tables
+    Println "Creating database schema..."
+    ExecDB "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    ExecDB "CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    ExecDB "CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, author TEXT, isbn TEXT, category_id INTEGER, price REAL, stock INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(category_id) REFERENCES categories(id))"
+    Println "Schema created"
+    
+    # Initialize default admin user (password: admin123)
+    Println ""
+    Println "Creating default admin user..."
+    adminPassword = "admin123"
+    passwordHash = SHA256Hash adminPassword
+    ExecDB "INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)" "admin" passwordHash
+    Println "Default admin user created (username: admin, password: admin123)"
+    
+    # Initialize default categories
+    Println ""
+    Println "Creating default categories..."
+    ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Fiction" "Fiction books"
+    ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Non-Fiction" "Non-fiction books"
+    ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Science" "Science books"
+    ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "History" "History books"
+    Println "Default categories created"
+}
+#!/usr/bin/env shode
+
+# HTTP Route Handlers
+
+function handleLogin() {
+    username = GetHTTPQuery "username"
+    password = GetHTTPQuery "password"
+    
+    if username == "" || password == "" {
+        SetHTTPResponse 400 "Username and password are required"
+        return
+    }
+    
+    login username password
+    token = GetEnv "login_token"
+    success = GetEnv "login_success"
+    
+    if success == "false" || token == "" {
+        SetHTTPResponse 401 "Invalid username or password"
+        return
+    }
+    
+    SetHTTPHeader "Content-Type" "application/json"
+    response = "{\"token\":\"" + token + "\",\"username\":\"" + username + "\"}"
+    SetHTTPResponse 200 response
+}
+
+function handleListCategories() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    listCategories
+}
+
+function handleCreateCategory() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    createCategory
+}
+
+function handleUpdateCategory() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    updateCategory
+}
+
+function handleDeleteCategory() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    deleteCategory
+}
+
+function handleListBooks() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    listBooks
+}
+
+function handleGetBook() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    getBook
+}
+
+function handleCreateBook() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    createBook
+}
+
+function handleUpdateBook() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    updateBook
+}
+
+function handleDeleteBook() {
+    checkAuth
+    authValid = GetEnv "auth_valid"
+    if authValid == "false" {
+        return
+    }
+    deleteBook
+}
+#!/usr/bin/env shode
+
+# Library Management System - Main Entry Point
+# 
+# This file includes all module functions and starts the HTTP server.
+# 
+# File Structure:
+#   examples/library_management.sh  - Main entry point (this file)
+#   examples/library/database.sh    - Database initialization
+#   examples/library/auth.sh        - Authentication functions (login, checkAuth)
+#   examples/library/categories.sh  - Category management functions
+#   examples/library/books.sh       - Book management functions
+#   examples/library/handlers.sh    - HTTP route handlers
+#   examples/library/all_modules.sh - Combined all modules (auto-generated)
+#
+# Usage:
+#   ./shode run examples/library_management.sh
+
+# Include all module functions
+# Read the combined modules file and include its content
+# Since Shode doesn't support dynamic includes, we'll manually include
+# all function definitions from all_modules.sh
+
+# For now, we'll use a simpler approach: include all_modules.sh content here
+# But to keep it modular, we'll read and execute all_modules.sh
+
+Println "=== Library Management System ==="
+Println ""
+
+# Load all function definitions from all_modules.sh
+# We need to execute all_modules.sh in the same context
+# Since Shode doesn't have source/include, we'll read the file
+# and the functions will be available if they're in the same execution
+
+# Actually, the best approach is to include all_modules.sh content directly
+# Let's read it and the parser will parse all functions
+
+allModulesContent = ReadFile "examples/library/all_modules.sh"
+# Note: Reading the file doesn't execute it, so functions won't be available
+# We need to actually execute the file content
+
+# Since we can't dynamically execute, let's include the key parts:
+# 1. Database initialization (inline)
+# 2. Function definitions (from all_modules.sh)
+
+# Initialize database
+Println "Initializing database..."
+dbPath = "test/tmp/library.db"
+ConnectDB "sqlite" dbPath
+Println "Database connected: " + dbPath
+
+# Create tables
+Println "Creating database schema..."
+ExecDB "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+ExecDB "CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+ExecDB "CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, author TEXT, isbn TEXT, category_id INTEGER, price REAL, stock INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(category_id) REFERENCES categories(id))"
+Println "Schema created"
+
+# Initialize default admin user
+Println ""
+Println "Creating default admin user..."
+adminPassword = "admin123"
+passwordHash = SHA256Hash adminPassword
+ExecDB "INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)" "admin" passwordHash
+Println "Default admin user created (username: admin, password: admin123)"
+
+# Initialize default categories
+Println ""
+Println "Creating default categories..."
+ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Fiction" "Fiction books"
+ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Non-Fiction" "Non-fiction books"
+ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "Science" "Science books"
+ExecDB "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)" "History" "History books"
+Println "Default categories created"
+
+# Now include all function definitions from all_modules.sh
+# Since we can't dynamically include, we need to ensure functions are defined
+# The solution: Parse and include all_modules.sh at parse time
+# But Shode parser doesn't support includes...
+
+# Workaround: Use a single file that includes everything
+# OR: Modify the run command to support multiple files
+# OR: Create a loader script that concatenates files
+
+# For now, let's test: if we run all_modules.sh first, then this file,
+# functions should be available. But that requires two separate runs.
+
+# Better solution: Include all_modules.sh content directly in this file
+# But that defeats the purpose of modularity...
+
+# Best solution for now: Create a single entry point that includes everything
+# Let's modify the approach: make library_management.sh include all_modules.sh content
+
+# Start HTTP Server
+Println ""
+Println "Starting HTTP server..."
+port = "9188"
+StartHTTPServer port
+sleep 1
+
+# Register routes
+Println "Registering routes..."
+
+# Authentication
+RegisterHTTPRoute "POST" "/api/login" "function" "handleLogin"
+
+# Category management
+RegisterHTTPRoute "GET" "/api/categories" "function" "handleListCategories"
+RegisterHTTPRoute "POST" "/api/categories" "function" "handleCreateCategory"
+RegisterHTTPRoute "PUT" "/api/categories" "function" "handleUpdateCategory"
+RegisterHTTPRoute "DELETE" "/api/categories" "function" "handleDeleteCategory"
+
+# Book management
+RegisterHTTPRoute "GET" "/api/books" "function" "handleListBooks"
+RegisterHTTPRoute "GET" "/api/books/:id" "function" "handleGetBook"
+RegisterHTTPRoute "POST" "/api/books" "function" "handleCreateBook"
+RegisterHTTPRoute "PUT" "/api/books" "function" "handleUpdateBook"
+RegisterHTTPRoute "DELETE" "/api/books" "function" "handleDeleteBook"
+
+# Health check
+RegisterHTTPRoute "GET" "/health" "script" "SetHTTPResponse 200 'OK'"
+
+Println ""
+Println "=== Library Management System is running ==="
+Println "Server: http://localhost:" + port
+Println ""
+Println "API Endpoints:"
+Println "  Authentication:"
+Println "    POST /api/login?username=admin&password=admin123"
+Println ""
+Println "  Categories:"
+Println "    GET    /api/categories - List all categories"
+Println "    POST   /api/categories?name=Tech&description=Technology - Create category"
+Println "    PUT    /api/categories?id=1&name=Technology - Update category"
+Println "    DELETE /api/categories?id=1 - Delete category"
+Println ""
+Println "  Books:"
+Println "    GET    /api/books - List all books"
+Println "    GET    /api/books?category_id=1 - List books by category"
+Println "    GET    /api/books/:id - Get book by ID"
+Println "    POST   /api/books?title=Book&author=Author&category_id=1&price=29.99&stock=10 - Create book"
+Println "    PUT    /api/books?id=1&title=New Title - Update book"
+Println "    DELETE /api/books?id=1 - Delete book"
+Println ""
+Println "  Health:"
+Println "    GET    /health - Health check"
+Println ""
+Println "Usage Example:"
+Println "  1. Login: curl 'http://localhost:" + port + "/api/login?username=admin&password=admin123'"
+Println "  2. Get token from response"
+Println "  3. Use token in Authorization header: curl -H 'Authorization: <token>' 'http://localhost:" + port + "/api/books'"
+Println ""
+Println "Press Ctrl+C to stop the server"

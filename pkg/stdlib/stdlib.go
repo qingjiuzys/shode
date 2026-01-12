@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"gitee.com/com_818cloud/shode/pkg/config"
 	"gitee.com/com_818cloud/shode/pkg/database"
 	"gitee.com/com_818cloud/shode/pkg/ioc"
+	"gitee.com/com_818cloud/shode/pkg/parser"
+	"gitee.com/com_818cloud/shode/pkg/types"
 	"gitee.com/com_818cloud/shode/pkg/web"
 )
 
@@ -323,20 +326,149 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			defer sl.requestContexts.Delete(goroutineID)
 
 			// Execute handler based on type
-			// Note: Full handler execution requires engine factory to be set
-			// For now, handlers will use SetHTTPResponse in their code
-			reqCtx.Response.mu.Lock()
-			if reqCtx.Response.Status == 0 {
-				reqCtx.Response.Status = http.StatusOK
-			}
-			if reqCtx.Response.Body == "" {
-				if selectedHandler.handlerType == "function" {
-					reqCtx.Response.Body = fmt.Sprintf("Handler function: %s (call SetHTTPResponse in function)", selectedHandler.handlerName)
+			if selectedHandler.handlerType == "function" {
+				// Execute function handler using reflection to avoid circular dependency
+				if sl.engineFactory != nil {
+					engineInterface := sl.engineFactory()
+					if engineInterface != nil {
+						// Use reflection to call ExecuteCommand method
+						engineValue := reflect.ValueOf(engineInterface)
+						executeCommandMethod := engineValue.MethodByName("ExecuteCommand")
+						
+						if executeCommandMethod.IsValid() {
+							ctx := context.Background()
+							
+							// Create a command node to call the function
+							cmdNode := &types.CommandNode{
+								Pos:  types.Position{Line: 0, Column: 0, Offset: 0},
+								Name: selectedHandler.handlerName,
+								Args: []string{}, // Function arguments would come from query params if needed
+							}
+							
+							// Call ExecuteCommand using reflection
+							ctxValue := reflect.ValueOf(ctx)
+							cmdNodeValue := reflect.ValueOf(cmdNode)
+							results := executeCommandMethod.Call([]reflect.Value{ctxValue, cmdNodeValue})
+							
+							if len(results) >= 1 {
+								// Check for error (second return value)
+								if len(results) == 2 && !results[1].IsNil() {
+									// Error occurred, but continue to check response
+								}
+								
+								// Get result (first return value)
+								if !results[0].IsNil() {
+									resultValue := results[0].Interface()
+									// Try to get Output field from result
+									resultReflect := reflect.ValueOf(resultValue)
+									if resultReflect.Kind() == reflect.Ptr {
+										resultReflect = resultReflect.Elem()
+									}
+									
+									outputField := resultReflect.FieldByName("Output")
+									if outputField.IsValid() && outputField.Kind() == reflect.String {
+										output := outputField.String()
+										if output != "" {
+											reqCtx.Response.mu.Lock()
+											if reqCtx.Response.Body == "" {
+												reqCtx.Response.Body = output
+											}
+											reqCtx.Response.mu.Unlock()
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				
+				// If function didn't set response, set default
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Status == 0 {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Status = http.StatusOK
+					reqCtx.Response.mu.Unlock()
 				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+				
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Body == "" {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Body = fmt.Sprintf("Handler function: %s (call SetHTTPResponse in function)", selectedHandler.handlerName)
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+			} else {
+				// Execute script handler
+				if sl.engineFactory != nil {
+					engineInterface := sl.engineFactory()
+					if engineInterface != nil {
+						// Parse the script
+						p := parser.NewSimpleParser()
+						script, err := p.ParseString(selectedHandler.handlerName)
+						if err == nil {
+							// Use reflection to call Execute method
+							engineValue := reflect.ValueOf(engineInterface)
+							executeMethod := engineValue.MethodByName("Execute")
+							
+							if executeMethod.IsValid() {
+								ctx := context.Background()
+								ctxValue := reflect.ValueOf(ctx)
+								scriptValue := reflect.ValueOf(script)
+								results := executeMethod.Call([]reflect.Value{ctxValue, scriptValue})
+								
+								if len(results) >= 1 && !results[0].IsNil() {
+									resultValue := results[0].Interface()
+									resultReflect := reflect.ValueOf(resultValue)
+									if resultReflect.Kind() == reflect.Ptr {
+										resultReflect = resultReflect.Elem()
+									}
+									
+									outputField := resultReflect.FieldByName("Output")
+									if outputField.IsValid() && outputField.Kind() == reflect.String {
+										output := outputField.String()
+										if output != "" {
+											reqCtx.Response.mu.Lock()
+											if reqCtx.Response.Status == 0 {
+												reqCtx.Response.Status = http.StatusOK
+											}
+											if reqCtx.Response.Body == "" {
+												reqCtx.Response.Body = output
+											}
+											reqCtx.Response.mu.Unlock()
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				
+				// Set default if script didn't set response
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Status == 0 {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Status = http.StatusOK
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+				
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Body == "" {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
 					reqCtx.Response.Body = fmt.Sprintf("Handler script: %s", selectedHandler.handlerName)
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
 				}
 			}
-			reqCtx.Response.mu.Unlock()
 
 			// Write response
 			reqCtx.Response.mu.RLock()
