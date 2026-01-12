@@ -364,50 +364,16 @@ function handleDeleteBook() {
     deleteBook
 }
 
-# Main entry point continues here
-#   ./shode run examples/library_management.sh
-
-# Include all function definitions from all_modules.sh
-# We'll read the file and the functions will be parsed and available
+# ============================================
+# Main Entry Point - Library Management System
+# ============================================
+# All function definitions from library modules are included above
+# Now we initialize the system and start the HTTP server
 
 Println "=== Library Management System ==="
 Println ""
 
-# Read all_modules.sh to load all function definitions
-# Note: In Shode, functions are parsed at script load time, so we need
-# to include the function definitions before they're used.
-# Since we can't dynamically include, we'll manually include the content
-# OR use a preprocessor to combine files
-
-# For now, let's include all_modules.sh content directly
-# We'll use a workaround: read the file and execute it
-# But Shode doesn't have eval, so we need another approach
-
-# Solution: Include all_modules.sh at the beginning of this file
-# We'll manually concatenate the files or use a build step
-
-# Actually, the simplest solution: Make library_management.sh include
-# all_modules.sh content. Let's do that by reading and including it.
-
-# Read all modules content (functions will be parsed)
-allModules = ReadFile "examples/library/all_modules.sh"
-# Note: Reading doesn't execute, so functions won't be available
-# We need to actually parse and execute the content
-
-# Since Shode doesn't support dynamic execution, the best approach is:
-# 1. Use a build script to combine files
-# 2. OR: Include all_modules.sh content directly in this file
-# 3. OR: Modify Shode to support source/include
-
-# For now, let's use approach 2: Include all function definitions here
-# But to keep it maintainable, we'll read from all_modules.sh and
-# the parser should handle it if we structure it correctly
-
-# Actually, let's try a different approach: 
-# Make this file source all_modules.sh by including its content
-# We can do this by having the parser parse both files
-
-# Initialize database (inline for now, since initDatabase may not be loaded)
+# Initialize database
 Println "Initializing database..."
 dbPath = "test/tmp/library.db"
 ConnectDB "sqlite" dbPath
