@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"gitee.com/com_818cloud/shode/pkg/errors"
 	"gitee.com/com_818cloud/shode/pkg/metrics"
 	"gitee.com/com_818cloud/shode/pkg/module"
+	shodeparser "gitee.com/com_818cloud/shode/pkg/parser"
 	"gitee.com/com_818cloud/shode/pkg/sandbox"
 	"gitee.com/com_818cloud/shode/pkg/stdlib"
 	"gitee.com/com_818cloud/shode/pkg/types"
@@ -152,6 +154,34 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				result.ContinueFlag = true
 				result.Success = true
 				return result, nil
+			}
+
+			// Check for Source command - load and execute another script file
+			if n.Name == "Source" {
+				if len(n.Args) == 0 {
+					result.Success = false
+					result.ExitCode = 1
+					result.Error = "Source requires a file path argument"
+					return result, nil
+				}
+				// Expand the file path
+				filePath := ee.expandVariables(n.Args[0])
+				// Parse and execute the source file
+				sourceResult, err := ee.executeSourceFile(ctx, filePath)
+				if err != nil {
+					result.Success = false
+					result.ExitCode = 1
+					result.Error = fmt.Sprintf("Source error: %v", err)
+					return result, nil
+				}
+				result.Commands = append(result.Commands, sourceResult.Commands...)
+				if !sourceResult.Success {
+					result.Success = false
+					result.ExitCode = sourceResult.ExitCode
+					result.Error = sourceResult.Error
+					break
+				}
+				continue
 			}
 
 			cmdResult, err := ee.ExecuteCommand(ctx, n)
@@ -610,6 +640,7 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"GetConfigInt":             true,
 		"GetConfigBool":            true,
 		"SetConfig":                true,
+		"Source":                    true,
 	}
 	return stdlibFunctions[funcName]
 }
@@ -1099,6 +1130,23 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		}
 		ee.stdlib.SetConfig(args[0], args[1])
 		return "Config set", nil
+	case "Source":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"Source requires filepath argument").
+				WithContext("function", "Source")
+		}
+		filePath := ee.expandVariables(args[0])
+		result, err := ee.executeSourceFile(context.Background(), filePath)
+		if err != nil {
+			return "", err
+		}
+		if !result.Success {
+			return "", errors.NewExecutionError(errors.ErrExecutionFailed,
+				fmt.Sprintf("Source file execution failed: %s", result.Error)).
+				WithContext("file", filePath)
+		}
+		return fmt.Sprintf("Source file loaded: %s", filePath), nil
 	case "AddMiddleware":
 		// Note: Middleware registration requires function reference
 		// For now, this is a placeholder

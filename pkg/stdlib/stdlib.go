@@ -836,3 +836,13 @@ func (sl *StdLib) SHA256Hash(text string) string {
 	hash := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(hash[:])
 }
+
+// Source executes a Shode script file in the current execution context
+// This allows modular code organization by loading functions from separate files
+// Usage: Source "path/to/module.sh"
+// Note: Actual execution is handled by ExecutionEngine, this is just a placeholder
+func (sl *StdLib) Source(filepath string) (string, error) {
+	// This function is handled by ExecutionEngine.executeSourceFile
+	// It's registered here for consistency with other stdlib functions
+	return fmt.Sprintf("Source file: %s", filepath), nil
+}
