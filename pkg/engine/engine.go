@@ -892,9 +892,7 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		}
 		value, exists := ee.stdlib.GetCache(args[0])
 		if !exists {
-			return "", errors.NewExecutionError(errors.ErrFileNotFound,
-				fmt.Sprintf("cache key not found: %s", args[0])).
-				WithContext("function", "GetCache")
+			return "", nil // Return empty string if key not found (not an error)
 		}
 		return value, nil
 	case "DeleteCache":
@@ -1108,6 +1106,13 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 	case "ClearMiddlewares":
 		ee.stdlib.ClearMiddlewares()
 		return "Middlewares cleared", nil
+	case "SHA256Hash":
+		if len(args) == 0 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SHA256Hash requires text argument").
+				WithContext("function", "SHA256Hash")
+		}
+		return ee.stdlib.SHA256Hash(args[0]), nil
 	default:
 		return "", errors.NewExecutionError(errors.ErrExecutionFailed,
 			fmt.Sprintf("unknown standard library function: %s", funcName)).

@@ -3,6 +3,8 @@ package stdlib
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -695,4 +697,10 @@ func (sl *StdLib) ClearMiddlewares() {
 		defer sl.httpServer.mu.Unlock()
 		sl.httpServer.middlewares = make([]web.Middleware, 0)
 	}
+}
+
+// SHA256Hash computes the SHA256 hash of a string and returns it as a hex string
+func (sl *StdLib) SHA256Hash(text string) string {
+	hash := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(hash[:])
 }
