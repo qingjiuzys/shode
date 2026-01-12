@@ -4,6 +4,7 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
+import HomepageComparison from '@site/src/components/HomepageComparison';
 import Heading from '@theme/Heading';
 
 import styles from './index.module.css';
@@ -20,7 +21,7 @@ function HomepageHeader() {
         <div className={styles.buttons}>
           <Link
             className="button button--primary button--lg"
-            to="/docs/快速开始">
+            to="/docs/getting-started/quick-start">
             快速开始 🚀
           </Link>
           <Link
@@ -43,6 +44,7 @@ export default function Home(): ReactNode {
       <HomepageHeader />
       <main>
         <HomepageFeatures />
+        <HomepageComparison />
       </main>
     </Layout>
   );
