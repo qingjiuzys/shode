@@ -5,6 +5,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
 import HomepageComparison from '@site/src/components/HomepageComparison';
+import HomepageShellFeatures from '@site/src/components/HomepageShellFeatures';
 import Heading from '@theme/Heading';
 
 import styles from './index.module.css';
@@ -44,6 +45,7 @@ export default function Home(): ReactNode {
       <HomepageHeader />
       <main>
         <HomepageFeatures />
+        <HomepageShellFeatures />
         <HomepageComparison />
       </main>
     </Layout>
