@@ -262,7 +262,8 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			trimmedValue := strings.TrimSpace(expandedValue)
 			if trimmedValue != "" && !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
 				// Check if it's a command (contains spaces or is a known stdlib function)
-				if strings.Contains(trimmedValue, " ") || ee.isStdLibFunction(strings.Fields(trimmedValue)[0]) {
+				fields := strings.Fields(trimmedValue)
+				if len(fields) > 0 && (strings.Contains(trimmedValue, " ") || ee.isStdLibFunction(fields[0])) {
 					// Try to parse and execute as a command
 					p := shodeparser.NewSimpleParser()
 					script, err := p.ParseString(trimmedValue)
@@ -271,12 +272,35 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 						cmdResult, execErr := ee.Execute(ctx, script)
 						if execErr == nil && cmdResult != nil && cmdResult.Success {
 							// Use command output as the value
-							expandedValue = strings.TrimSpace(cmdResult.Output)
+							// Collect output from all commands in the result
+							var output strings.Builder
+							for _, cr := range cmdResult.Commands {
+								if cr.Output != "" {
+									output.WriteString(cr.Output)
+									if !strings.HasSuffix(cr.Output, "\n") {
+										output.WriteString("\n")
+									}
+								}
+							}
+							// Also check the result's Output field
+							if cmdResult.Output != "" {
+								output.WriteString(cmdResult.Output)
+							}
+							expandedValue = strings.TrimSpace(output.String())
+							fmt.Printf("[DEBUG] AssignmentNode: executed command '%s', got output: '%s' (from %d commands, result.Output='%s')\n", trimmedValue, expandedValue, len(cmdResult.Commands), cmdResult.Output)
+							if len(cmdResult.Commands) > 0 {
+								fmt.Printf("[DEBUG] AssignmentNode: first command output: '%s'\n", cmdResult.Commands[0].Output)
+							}
+						} else {
+							fmt.Printf("[DEBUG] AssignmentNode: command execution failed: %v, result: %v\n", execErr, cmdResult)
 						}
+					} else {
+						fmt.Printf("[DEBUG] AssignmentNode: failed to parse command '%s': %v\n", trimmedValue, err)
 					}
 				}
 			}
 			
+			fmt.Printf("[DEBUG] AssignmentNode: setting %s = '%s'\n", n.Name, expandedValue)
 			ee.envManager.SetEnv(n.Name, expandedValue)
 
 		case *types.AnnotationNode:
@@ -686,11 +710,17 @@ func (ee *ExecutionEngine) executeInterpreted(ctx context.Context, cmd *types.Co
 		}, nil
 	}
 
+	output := result
+	if output == "" {
+		// If result is empty, try to get from command execution
+		// This handles cases where the function returns empty string but we need the output
+		output = result
+	}
 	return &CommandResult{
 		Command:  cmd,
 		Success:  true,
 		ExitCode: 0,
-		Output:   result,
+		Output:   output,
 	}, nil
 }
 

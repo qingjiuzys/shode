@@ -732,7 +732,9 @@ func (sl *StdLib) GetHTTPQuery(key string) string {
 	if len(ctx.QueryParams) > 0 {
 		fmt.Printf("[DEBUG] GetHTTPQuery: context has %d params: %v, looking for: %s\n", len(ctx.QueryParams), ctx.QueryParams, key)
 	}
-	return ctx.QueryParams[key]
+	result := ctx.QueryParams[key]
+	fmt.Printf("[DEBUG] GetHTTPQuery: returning value: '%s' for key: %s\n", result, key)
+	return result
 }
 
 // GetHTTPHeader returns a request header value
