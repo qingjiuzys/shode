@@ -56,7 +56,7 @@ func NewClient(config *RegistryConfig) (*Client, error) {
 func (c *Client) Search(query *SearchQuery) ([]*SearchResult, error) {
 	// Build query parameters
 	url := fmt.Sprintf("%s/api/search", c.config.URL)
-	
+
 	// Prepare request body
 	reqBody, err := json.Marshal(query)
 	if err != nil {
@@ -103,7 +103,7 @@ func (c *Client) GetPackage(name string) (*PackageMetadata, error) {
 
 	// Fetch from registry
 	url := fmt.Sprintf("%s/api/packages/%s", c.config.URL, name)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -217,7 +217,7 @@ func (c *Client) Publish(req *PublishRequest) error {
 
 	// Prepare request
 	url := fmt.Sprintf("%s/api/packages", c.config.URL)
-	
+
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
@@ -298,10 +298,10 @@ func extractTarball(tarballPath, targetDir string) error {
 		return fmt.Errorf("failed to create gzip reader: %v", err)
 	}
 	defer gzr.Close()
-	
+
 	// Create tar reader
 	tr := tar.NewReader(gzr)
-	
+
 	// Extract all files
 	for {
 		header, err := tr.Next()
@@ -311,15 +311,15 @@ func extractTarball(tarballPath, targetDir string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read tar header: %v", err)
 		}
-		
+
 		// Get the target path
 		targetPath := filepath.Join(targetDir, header.Name)
-		
+
 		// Check for path traversal attacks
 		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(targetDir)) {
 			return fmt.Errorf("invalid path: %s", header.Name)
 		}
-		
+
 		// Handle different file types
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -327,38 +327,38 @@ func extractTarball(tarballPath, targetDir string) error {
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
 				return fmt.Errorf("failed to create directory %s: %v", targetPath, err)
 			}
-			
+
 		case tar.TypeReg:
 			// Create parent directories if needed
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return fmt.Errorf("failed to create parent directory: %v", err)
 			}
-			
+
 			// Create file
 			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("failed to create file %s: %v", targetPath, err)
 			}
-			
+
 			// Copy file content
 			if _, err := io.Copy(outFile, tr); err != nil {
 				outFile.Close()
 				return fmt.Errorf("failed to copy file content: %v", err)
 			}
-			
+
 			outFile.Close()
-			
+
 		case tar.TypeSymlink:
 			// Create symlink
 			if err := os.Symlink(header.Linkname, targetPath); err != nil {
 				return fmt.Errorf("failed to create symlink: %v", err)
 			}
-			
+
 		default:
 			// Skip other types (hard links, character devices, etc.)
 			continue
 		}
 	}
-	
+
 	return nil
 }

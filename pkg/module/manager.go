@@ -111,7 +111,7 @@ func (mm *ModuleManager) resolveModulePath(path string) (string, error) {
 	// Handle relative paths
 	if !filepath.IsAbs(path) {
 		wd := mm.envManager.GetWorkingDir()
-		
+
 		// Check if it's a local file
 		localPath := filepath.Join(wd, path)
 		if _, err := os.Stat(localPath); err == nil {
@@ -140,7 +140,7 @@ func (mm *ModuleManager) loadModuleExports(module *Module) error {
 		if err != nil {
 			return fmt.Errorf("failed to load package.json: %v", err)
 		}
-		
+
 		// Use main entry point from package.json if specified
 		if pkgInfo.Main != "" {
 			mainPath := filepath.Join(module.Path, pkgInfo.Main)
@@ -186,17 +186,17 @@ func (mm *ModuleManager) loadPackageJson(path string) (*PackageJson, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var pkg PackageJson
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return nil, fmt.Errorf("failed to parse package.json: %v", err)
 	}
-	
+
 	// Set default main if not specified
 	if pkg.Main == "" {
 		pkg.Main = "index.sh"
 	}
-	
+
 	return &pkg, nil
 }
 

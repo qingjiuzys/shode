@@ -149,7 +149,7 @@ func (p *SimpleParser) parseAssignment(line string, lineNum int) *types.Assignme
 
 	// Extract value (right side of =)
 	value := strings.TrimSpace(line[equalsIndex+1:])
-	
+
 	// Remove quotes if present
 	if len(value) >= 2 {
 		if (value[0] == '"' && value[len(value)-1] == '"') ||
@@ -217,7 +217,7 @@ func (p *SimpleParser) parseAnnotation(line string, lineNum int) *types.Annotati
 
 	// Remove @
 	content := strings.TrimPrefix(line, "@")
-	
+
 	// Check for value in parentheses
 	var name, value string
 	if idx := strings.Index(content, "("); idx != -1 {

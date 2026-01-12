@@ -76,7 +76,7 @@ func (pp *ProcessPool) Put(entry *ProcessEntry) {
 
 	key := generateProcessKey(entry.cmd, nil) // Use nil args for key
 	entry.lastUsed = time.Now()
-	
+
 	if _, exists := pp.pool[key]; !exists && len(pp.pool) < pp.maxSize {
 		pp.pool[key] = entry
 	} else {
@@ -89,26 +89,26 @@ func (pp *ProcessPool) Put(entry *ProcessEntry) {
 func (pp *ProcessPool) createProcess(cmd string, args []string) (*ProcessEntry, error) {
 	// Create command
 	command := exec.Command(cmd, args...)
-	
+
 	// Set up stdio pipes
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		stdin.Close()
 		return nil, err
 	}
-	
+
 	stderr, err := command.StderrPipe()
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
 		return nil, err
 	}
-	
+
 	// Start the process
 	if err := command.Start(); err != nil {
 		stdin.Close()
@@ -116,7 +116,7 @@ func (pp *ProcessPool) createProcess(cmd string, args []string) (*ProcessEntry, 
 		stderr.Close()
 		return nil, err
 	}
-	
+
 	return &ProcessEntry{
 		cmd:       cmd,
 		process:   command.Process,
@@ -136,14 +136,14 @@ func (pp *ProcessPool) cleanupIdleProcesses() {
 	for range ticker.C {
 		pp.mu.Lock()
 		now := time.Now()
-		
+
 		for key, entry := range pp.pool {
 			if now.Sub(entry.lastUsed) > pp.idleTimeout {
 				entry.Close()
 				delete(pp.pool, key)
 			}
 		}
-		
+
 		pp.mu.Unlock()
 	}
 }
@@ -183,7 +183,7 @@ func (pe *ProcessEntry) Close() {
 		pe.process.Kill()
 		pe.process.Wait()
 	}
-	
+
 	if pe.stdin != nil {
 		pe.stdin.Close()
 	}
@@ -193,7 +193,7 @@ func (pe *ProcessEntry) Close() {
 	if pe.stderr != nil {
 		pe.stderr.Close()
 	}
-	
+
 	pe.isRunning = false
 }
 
@@ -213,7 +213,7 @@ func stringsJoin(strs []string, sep string) string {
 	if len(strs) == 1 {
 		return strs[0]
 	}
-	
+
 	result := strs[0]
 	for _, s := range strs[1:] {
 		result += sep + s

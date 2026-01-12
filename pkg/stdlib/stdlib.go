@@ -275,7 +275,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 
 	// Create route key: method:path
 	routeKey := fmt.Sprintf("%s:%s", method, path)
-	
+
 	// Store the handler
 	sl.httpServer.routes[routeKey] = &routeHandler{
 		method:      method,
@@ -292,15 +292,15 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			sl.httpServer.mu.RLock()
 			defer sl.httpServer.mu.RUnlock()
-			
+
 			// Check for exact method match
 			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
 			handler, exactExists := sl.httpServer.routes[exactKey]
-			
+
 			// Check for wildcard method match
 			wildcardKey := fmt.Sprintf("*:%s", r.URL.Path)
 			wildcardHandler, wildcardExists := sl.httpServer.routes[wildcardKey]
-			
+
 			var selectedHandler *routeHandler
 			if exactExists {
 				selectedHandler = handler
@@ -355,11 +355,11 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			if body != "" {
 				fmt.Fprintf(w, "%s", body)
 			} else {
-				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n", 
+				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n",
 					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
 			}
 		})
-		
+
 		// Mark path as registered
 		sl.httpServer.routes[pathKey] = &routeHandler{path: path}
 	}

@@ -62,7 +62,7 @@ type PackageInfo struct {
 func NewPackageManager() *PackageManager {
 	// Initialize registry client with default config
 	registryClient, _ := registry.NewClient(nil)
-	
+
 	return &PackageManager{
 		envManager:     environment.NewEnvironmentManager(),
 		config:         &PackageConfig{},
@@ -401,15 +401,15 @@ func calculateChecksum(data []byte) string {
 // createTarball creates a tar.gz archive from the package directory
 func createTarball(sourceDir string) ([]byte, error) {
 	var buf bytes.Buffer
-	
+
 	// Create gzip writer
 	gzw := gzip.NewWriter(&buf)
 	defer gzw.Close()
-	
+
 	// Create tar writer
 	tw := tar.NewWriter(gzw)
 	defer tw.Close()
-	
+
 	// Files and directories to exclude
 	excludePatterns := []string{
 		".git",
@@ -420,24 +420,24 @@ func createTarball(sourceDir string) ([]byte, error) {
 		".DS_Store",
 		"Thumbs.db",
 	}
-	
+
 	// Walk the directory
 	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// Skip the root directory itself
 		if path == sourceDir {
 			return nil
 		}
-		
+
 		// Check if path should be excluded
 		relPath, err := filepath.Rel(sourceDir, path)
 		if err != nil {
 			return err
 		}
-		
+
 		// Check exclusion patterns
 		for _, pattern := range excludePatterns {
 			if matched, _ := filepath.Match(pattern, relPath); matched {
@@ -454,21 +454,21 @@ func createTarball(sourceDir string) ([]byte, error) {
 				return nil
 			}
 		}
-		
+
 		// Create tar header
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
 		}
-		
+
 		// Set the name to be relative to source directory
 		header.Name = relPath
-		
+
 		// Write header
 		if err := tw.WriteHeader(header); err != nil {
 			return err
 		}
-		
+
 		// Write file content if it's a regular file
 		if !info.IsDir() {
 			file, err := os.Open(path)
@@ -476,19 +476,19 @@ func createTarball(sourceDir string) ([]byte, error) {
 				return err
 			}
 			defer file.Close()
-			
+
 			if _, err := io.Copy(tw, file); err != nil {
 				return err
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Close writers to flush data
 	if err := tw.Close(); err != nil {
 		return nil, err
@@ -496,6 +496,6 @@ func createTarball(sourceDir string) ([]byte, error) {
 	if err := gzw.Close(); err != nil {
 		return nil, err
 	}
-	
+
 	return buf.Bytes(), nil
 }
