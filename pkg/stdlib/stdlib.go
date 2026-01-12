@@ -365,6 +365,10 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 								reqCtx.Response.mu.Unlock()
 							} else {
 								// Function executed successfully
+								// Wait a moment for SetHTTPResponse to be called
+								// (in case it's called asynchronously or needs time)
+								time.Sleep(10 * time.Millisecond)
+								
 								// The function should have called SetHTTPResponse
 								// Check if response was set (after execution)
 								reqCtx.Response.mu.RLock()
