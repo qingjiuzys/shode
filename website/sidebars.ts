@@ -6,17 +6,51 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: '开始使用',
       items: [
-        '介绍',
-        '安装',
-        '快速开始',
+        'getting-started/introduction',
+        'getting-started/installation',
+        'getting-started/quick-start',
+      ],
+    },
+    {
+      type: 'category',
+      label: '使用指南',
+      items: [
+        'guides/user-guide',
+        'guides/execution-engine',
+        'guides/package-registry',
       ],
     },
     {
       type: 'category',
       label: 'API参考',
       items: [
-        'API-标准库',
-        'API-命令行',
+        'api/stdlib',
+        'api/cli',
+      ],
+    },
+    {
+      type: 'category',
+      label: '示例',
+      items: [
+        'examples/index',
+        {
+          type: 'category',
+          label: '基础示例',
+          items: [
+            'examples/basic/http-server',
+            'examples/basic/cache',
+            'examples/basic/database',
+          ],
+        },
+        {
+          type: 'category',
+          label: '高级示例',
+          items: [
+            'examples/advanced/ecommerce-api',
+            'examples/advanced/blog-api',
+            'examples/advanced/spring-features',
+          ],
+        },
       ],
     },
   ],

@@ -85,11 +85,15 @@ const config: Config = {
           items: [
             {
               label: '快速开始',
-              to: '/docs/快速开始',
+              to: '/docs/getting-started/quick-start',
             },
             {
               label: 'API参考',
-              to: '/docs/category/api-参考',
+              to: '/docs/api/stdlib',
+            },
+            {
+              label: '示例',
+              to: '/docs/examples/index',
             },
           ],
         },
