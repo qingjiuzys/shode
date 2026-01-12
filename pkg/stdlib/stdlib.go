@@ -350,30 +350,40 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 							cmdNodeValue := reflect.ValueOf(cmdNode)
 							results := executeCommandMethod.Call([]reflect.Value{ctxValue, cmdNodeValue})
 							
-							if len(results) >= 1 {
-								// Check for error (second return value)
-								if len(results) == 2 && !results[1].IsNil() {
-									// Error occurred, but continue to check response
-								}
+							// Check for errors
+							if len(results) == 2 && !results[1].IsNil() {
+								// Error occurred
+								err := results[1].Interface().(error)
+								reqCtx.Response.mu.Lock()
+								reqCtx.Response.Status = http.StatusInternalServerError
+								reqCtx.Response.Body = fmt.Sprintf("Error executing handler: %v", err)
+								reqCtx.Response.mu.Unlock()
+							} else {
+								// Function executed successfully
+								// The function should have called SetHTTPResponse
+								// Check if response was set (after execution)
+								reqCtx.Response.mu.RLock()
+								statusSet := reqCtx.Response.Status != 0
+								bodySet := reqCtx.Response.Body != ""
+								reqCtx.Response.mu.RUnlock()
 								
-								// Get result (first return value)
-								if !results[0].IsNil() {
-									resultValue := results[0].Interface()
-									// Try to get Output field from result
-									resultReflect := reflect.ValueOf(resultValue)
-									if resultReflect.Kind() == reflect.Ptr {
-										resultReflect = resultReflect.Elem()
-									}
-									
-									outputField := resultReflect.FieldByName("Output")
-									if outputField.IsValid() && outputField.Kind() == reflect.String {
-										output := outputField.String()
-										if output != "" {
-											reqCtx.Response.mu.Lock()
-											if reqCtx.Response.Body == "" {
+								// If response wasn't set by function, check command result output
+								if !statusSet || !bodySet {
+									if len(results) >= 1 && !results[0].IsNil() {
+										resultValue := results[0].Interface()
+										resultReflect := reflect.ValueOf(resultValue)
+										if resultReflect.Kind() == reflect.Ptr {
+											resultReflect = resultReflect.Elem()
+										}
+										
+										outputField := resultReflect.FieldByName("Output")
+										if outputField.IsValid() && outputField.Kind() == reflect.String {
+											output := outputField.String()
+											if output != "" && !bodySet {
+												reqCtx.Response.mu.Lock()
 												reqCtx.Response.Body = output
+												reqCtx.Response.mu.Unlock()
 											}
-											reqCtx.Response.mu.Unlock()
 										}
 									}
 								}
@@ -612,13 +622,23 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 
 // getCurrentRequestContext gets the current request context for the calling goroutine
 func (sl *StdLib) getCurrentRequestContext() *HTTPRequestContext {
-	// Try to find context by iterating (simplified approach)
-	// In production, we'd use goroutine-local storage or context propagation
+	// First try to get "current" context (set during request handling)
+	if ctx, ok := sl.requestContexts.Load("current"); ok {
+		if httpCtx, ok := ctx.(*HTTPRequestContext); ok {
+			return httpCtx
+		}
+	}
+	
+	// Fallback: find any context (for backward compatibility)
 	var foundCtx *HTTPRequestContext
 	sl.requestContexts.Range(func(key, value interface{}) bool {
+		// Skip "current" key as we already checked it
+		if keyStr, ok := key.(string); ok && keyStr == "current" {
+			return true
+		}
 		if ctx, ok := value.(*HTTPRequestContext); ok {
 			foundCtx = ctx
-			return false // Stop iteration
+			return false // Stop at first match
 		}
 		return true
 	})
