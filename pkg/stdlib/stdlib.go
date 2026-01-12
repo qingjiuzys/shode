@@ -601,9 +601,26 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 
 	// Parse query parameters
 	queryParams := make(map[string]string)
+	rawQuery := r.URL.RawQuery
 	for k, v := range r.URL.Query() {
 		if len(v) > 0 {
 			queryParams[k] = v[0]
+		}
+	}
+	// Debug: ensure query params are parsed correctly
+	if rawQuery != "" && len(queryParams) == 0 {
+		// Try manual parsing as fallback
+		parts := strings.Split(rawQuery, "&")
+		for _, part := range parts {
+			if idx := strings.Index(part, "="); idx > 0 {
+				key := part[:idx]
+				value := part[idx+1:]
+				// URL decode if needed
+				if decoded, err := url.QueryUnescape(value); err == nil {
+					value = decoded
+				}
+				queryParams[key] = value
+			}
 		}
 	}
 
