@@ -131,3 +131,31 @@ type AnnotationNode struct {
 
 func (n *AnnotationNode) Position() Position { return n.Pos }
 func (n *AnnotationNode) String() string     { return "annotation" }
+
+// BackgroundNode represents a background job (command &)
+type BackgroundNode struct {
+	Pos     Position
+	Command Node
+}
+
+func (n *BackgroundNode) Position() Position { return n.Pos }
+func (n *BackgroundNode) String() string     { return "background" }
+
+// CommandSubstitutionNode represents command substitution $(command)
+type CommandSubstitutionNode struct {
+	Pos     Position
+	Command *ScriptNode
+}
+
+func (n *CommandSubstitutionNode) Position() Position { return n.Pos }
+func (n *CommandSubstitutionNode) String() string     { return "command_substitution" }
+
+// ArrayNode represents an array variable
+type ArrayNode struct {
+	Pos    Position
+	Name   string
+	Values []string
+}
+
+func (n *ArrayNode) Position() Position { return n.Pos }
+func (n *ArrayNode) String() string     { return "array" }

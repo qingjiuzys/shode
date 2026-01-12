@@ -1,13 +1,18 @@
 package engine
 
 import (
+	"context"
 	"regexp"
 	"strings"
+
+	"gitee.com/com_818cloud/shode/pkg/parser"
 )
 
 // expandVariables expands environment variables in a string
-// Supports ${VAR}, $VAR syntax, and direct variable names (for string concatenation)
+// Supports ${VAR}, $VAR syntax, command substitution $(...), and direct variable names (for string concatenation)
 func (ee *ExecutionEngine) expandVariables(s string) string {
+	// First, handle command substitution $(command)
+	s = ee.expandCommandSubstitution(s)
 	// First, handle string concatenation (var1 + " " + var2)
 	parts := splitStringConcat(s)
 	if len(parts) > 1 {
@@ -66,6 +71,56 @@ func (ee *ExecutionEngine) expandVariables(s string) string {
 	}
 
 	return s
+}
+
+// expandCommandSubstitution expands command substitution $(command) or `command`
+func (ee *ExecutionEngine) expandCommandSubstitution(s string) string {
+	// Handle $(command) syntax
+	re := regexp.MustCompile(`\$\(([^)]+)\)`)
+	s = re.ReplaceAllStringFunc(s, func(match string) string {
+		// Extract command from $(command)
+		cmdStr := match[2 : len(match)-1] // Remove $() wrapper
+		// Execute command and return output
+		result := ee.executeCommandSubstitution(cmdStr)
+		return result
+	})
+
+	// Handle backtick syntax `command`
+	re2 := regexp.MustCompile("`([^`]+)`")
+	s = re2.ReplaceAllStringFunc(s, func(match string) string {
+		// Extract command from `command`
+		cmdStr := match[1 : len(match)-1] // Remove backticks
+		// Execute command and return output
+		result := ee.executeCommandSubstitution(cmdStr)
+		return result
+	})
+
+	return s
+}
+
+// executeCommandSubstitution executes a command and returns its output
+func (ee *ExecutionEngine) executeCommandSubstitution(cmdStr string) string {
+	// Parse the command
+	p := parser.NewSimpleParser()
+	script, err := p.ParseString(cmdStr)
+	if err != nil {
+		return "" // Return empty on parse error
+	}
+
+	if len(script.Nodes) == 0 {
+		return ""
+	}
+
+	// Execute the command
+	ctx := context.Background()
+	result, err := ee.Execute(ctx, script)
+	if err != nil || !result.Success {
+		return "" // Return empty on execution error
+	}
+
+	// Return the output, trimming trailing newline
+	output := strings.TrimSuffix(result.Output, "\n")
+	return output
 }
 
 // splitStringConcat splits a string by + operator, handling quoted strings

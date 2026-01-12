@@ -89,9 +89,35 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 
 // parseCommand parses a single line into a command node or assignment node
 func (p *SimpleParser) parseCommand(line string, lineNum int) types.Node {
+	// Check for background job (command &)
+	trimmed := strings.TrimSpace(line)
+	if strings.HasSuffix(trimmed, "&") {
+		// Remove trailing &
+		cmdStr := strings.TrimSpace(trimmed[:len(trimmed)-1])
+		if cmdStr != "" {
+			// Parse the command part
+			cmdNode := p.parseCommand(cmdStr, lineNum)
+			if cmdNode != nil {
+				return &types.BackgroundNode{
+					Pos: types.Position{
+						Line:   lineNum,
+						Column: 1,
+						Offset: 0,
+					},
+					Command: cmdNode,
+				}
+			}
+		}
+	}
+
 	// Check if this is a variable assignment (var = value)
 	if assignment := p.parseAssignment(line, lineNum); assignment != nil {
 		return assignment
+	}
+
+	// Check for array assignment (array=(value1 value2 value3))
+	if arrayNode := p.parseArrayAssignment(line, lineNum); arrayNode != nil {
+		return arrayNode
 	}
 
 	// Simple tokenization - split by spaces, handle quotes
@@ -207,6 +233,40 @@ func (p *SimpleParser) tokenize(line string) []string {
 	}
 
 	return tokens
+}
+
+// parseArrayAssignment parses an array assignment (array=(value1 value2 value3))
+func (p *SimpleParser) parseArrayAssignment(line string, lineNum int) *types.ArrayNode {
+	// Look for pattern: name=(values...)
+	idx := strings.Index(line, "=(")
+	if idx == -1 {
+		return nil
+	}
+
+	varName := strings.TrimSpace(line[:idx])
+	if varName == "" {
+		return nil
+	}
+
+	// Find closing )
+	closeIdx := strings.LastIndex(line, ")")
+	if closeIdx == -1 || closeIdx <= idx {
+		return nil
+	}
+
+	// Extract values between =(
+	valuesStr := line[idx+2 : closeIdx]
+	values := p.tokenize(valuesStr)
+
+	return &types.ArrayNode{
+		Pos: types.Position{
+			Line:   lineNum,
+			Column: 1,
+			Offset: 0,
+		},
+		Name:   varName,
+		Values: values,
+	}
 }
 
 // parseAnnotation parses an annotation (@AnnotationName or @AnnotationName(value))

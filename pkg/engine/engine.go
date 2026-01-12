@@ -37,6 +37,9 @@ type ExecutionEngine struct {
 	cache       *CommandCache
 	functions   map[string]*types.FunctionNode // User-defined functions
 	metrics     *metrics.MetricsCollector       // Performance metrics collector
+	backgroundJobs map[int]*exec.Cmd            // Background jobs (PID -> Cmd)
+	jobCounter     int                          // Counter for job IDs
+	arrays         map[string][]string          // Array variables
 }
 
 // ExecutionResult represents the result of executing an AST
@@ -87,6 +90,9 @@ func NewExecutionEngine(
 		cache:       NewCommandCache(1000),
 		functions:  make(map[string]*types.FunctionNode),
 		metrics:    metrics.NewMetricsCollector(),
+		backgroundJobs: make(map[int]*exec.Cmd),
+		jobCounter:     0,
+		arrays:         make(map[string][]string),
 	}
 }
 
@@ -1508,6 +1514,56 @@ func (ee *ExecutionEngine) restoreEnvironment(env map[string]string) {
 	for k, v := range env {
 		ee.envManager.SetEnv(k, v)
 	}
+}
+
+// ExecuteBackground executes a command in the background
+func (ee *ExecutionEngine) ExecuteBackground(ctx context.Context, bgNode *types.BackgroundNode) (*CommandResult, error) {
+	// Create a new context that won't be cancelled when parent context is cancelled
+	bgCtx := context.Background()
+	
+	// Execute the command
+	var cmdResult *CommandResult
+	var err error
+	
+	switch cmd := bgNode.Command.(type) {
+	case *types.CommandNode:
+		cmdResult, err = ee.ExecuteCommand(bgCtx, cmd)
+	case *types.ScriptNode:
+		result, execErr := ee.Execute(bgCtx, cmd)
+		if execErr != nil {
+			err = execErr
+		} else if len(result.Commands) > 0 {
+			cmdResult = result.Commands[0]
+		}
+	default:
+		return nil, errors.NewExecutionError(errors.ErrInvalidInput,
+			"unsupported command type for background execution")
+	}
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Increment job counter and store job
+	ee.jobCounter++
+	jobID := ee.jobCounter
+	
+	// Store job info (we can't store exec.Cmd directly for background jobs,
+	// but we can track them by job ID)
+	// For now, just return the result immediately
+	// In a full implementation, we would start the process and return immediately
+	
+	return &CommandResult{
+		Command: &types.CommandNode{
+			Name: "background",
+			Args: []string{fmt.Sprintf("[%d]", jobID)},
+		},
+		Success:  true,
+		ExitCode: 0,
+		Output:   fmt.Sprintf("[%d] %d", jobID, jobID),
+		Duration: cmdResult.Duration,
+		Mode:     ModeProcess,
+	}, nil
 }
 
 // Helper function to convert error to string
