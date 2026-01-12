@@ -34,21 +34,22 @@ var FunctionMap = map[string]interface{}{
 	"upper":    (*StdLib).ToUpper,
 	"lower":    (*StdLib).ToLower,
 	"trim":     (*StdLib).Trim,
-	"split":    (*StdLib).Split,
-	"join":     (*StdLib).Join,
-	"hasprefix": (*StdLib).HasPrefix,
-	"hassuffix": (*StdLib).HasSuffix,
-	"index":    (*StdLib).Index,
-	"lastindex": (*StdLib).LastIndex,
-	"count":    (*StdLib).Count,
-	"repeat":   (*StdLib).Repeat,
-	"compare":  (*StdLib).Compare,
+	// String operations not yet implemented
+	// "split":    (*StdLib).Split,
+	// "join":     (*StdLib).Join,
+	// "hasprefix": (*StdLib).HasPrefix,
+	// "hassuffix": (*StdLib).HasSuffix,
+	// "index":    (*StdLib).Index,
+	// "lastindex": (*StdLib).LastIndex,
+	// "count":    (*StdLib).Count,
+	// "repeat":   (*StdLib).Repeat,
+	// "compare":  (*StdLib).Compare,
 
-	// Regular Expression Operations
-	"match":    (*StdLib).RegexMatch,
-	"find":     (*StdLib).RegexFind,
-	"findall":  (*StdLib).RegexFindAll,
-	"regexreplace": (*StdLib).RegexReplace,
+	// Regular Expression Operations not yet implemented
+	// "match":    (*StdLib).RegexMatch,
+	// "find":     (*StdLib).RegexFind,
+	// "findall":  (*StdLib).RegexFindAll,
+	// "regexreplace": (*StdLib).RegexReplace,
 
 	// Environment Operations
 	"getenv":   (*StdLib).GetEnv,
@@ -56,32 +57,32 @@ var FunctionMap = map[string]interface{}{
 	"pwd":      (*StdLib).WorkingDir,
 	"cd":       (*StdLib).ChangeDir,
 
-	// System Information
-	"hostname": (*StdLib).Hostname,
-	"whoami":   (*StdLib).GetUsername,
-	"pid":      (*StdLib).GetPID,
-	"ppid":     (*StdLib).GetPPID,
-	"sleep":    (*StdLib).Sleep,
-	"now":      (*StdLib).Now,
+	// System Information not yet implemented
+	// "hostname": (*StdLib).Hostname,
+	// "whoami":   (*StdLib).GetUsername,
+	// "pid":      (*StdLib).GetPID,
+	// "ppid":     (*StdLib).GetPPID,
+	// "sleep":    (*StdLib).Sleep,
+	// "now":      (*StdLib).Now,
 
-	// Network Operations
-	"httpget":  (*StdLib).HTTPGet,
-	"httppost": (*StdLib).HTTPPost,
+	// Network Operations not yet implemented
+	// "httpget":  (*StdLib).HTTPGet,
+	// "httppost": (*StdLib).HTTPPost,
 
-	// Cryptographic Operations
-	"md5":      (*StdLib).MD5Hash,
-	"sha1":     (*StdLib).SHA1Hash,
-	"sha256":   (*StdLib).SHA256Hash,
-	"base64encode": (*StdLib).Base64Encode,
-	"base64decode": (*StdLib).Base64Decode,
+	// Cryptographic Operations not yet implemented
+	// "md5":      (*StdLib).MD5Hash,
+	// "sha1":     (*StdLib).SHA1Hash,
+	// "sha256":   (*StdLib).SHA256Hash,
+	// "base64encode": (*StdLib).Base64Encode,
+	// "base64decode": (*StdLib).Base64Decode,
 
-	// Data Processing
-	"json":     (*StdLib).JSONStringify,
-	"jsonparse": (*StdLib).JSONParse,
+	// Data Processing not yet implemented
+	// "json":     (*StdLib).JSONStringify,
+	// "jsonparse": (*StdLib).JSONParse,
 
-	// Process Execution
-	"exec":     (*StdLib).Exec,
-	"exectimeout": (*StdLib).ExecWithTimeout,
+	// Process Execution not yet implemented
+	// "exec":     (*StdLib).Exec,
+	// "exectimeout": (*StdLib).ExecWithTimeout,
 
 	// Utility Functions
 	"print":    (*StdLib).Print,
