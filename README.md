@@ -8,6 +8,22 @@ Transform shell scripting from a manual workshop model to a modern engineering d
 
 ## ✨ Features
 
+### 🎯 Complete Shell Feature Support
+
+Shode provides comprehensive Shell syntax and feature support:
+
+- **Control Flow**: If-Then-Else, For/While loops, Break/Continue statements
+- **Pipelines & Redirections**: Full support for `|`, `>`, `>>`, `<`, `2>&1`, `&>` operators
+- **Variable System**: Variable assignment, expansion (`$VAR`, `${VAR}`), string concatenation
+- **Function System**: Function definition, calling, parameter passing, scope isolation
+- **Module System**: Import/export, package.json support, path resolution
+- **Annotation System**: `@Annotation` syntax similar to Spring framework
+- **Execution Modes**: Interpreted (stdlib), Process (external), Hybrid
+- **Security Features**: Command blacklist, sensitive file protection, pattern detection
+- **Performance**: Command caching, process pooling, metrics collection
+
+📖 [View Complete Shell Features →](docs/guides/SHELL_FEATURES.md)
+
 ### ✅ Phase 1: Core Engine (Completed)
 - **CLI Interface**: Comprehensive command-line interface with Cobra
 - **Advanced Parser**: Robust shell command parser with quote handling and comment support
