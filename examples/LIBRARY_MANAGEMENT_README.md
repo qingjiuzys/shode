@@ -37,7 +37,11 @@
 ### 1. 启动服务
 
 ```bash
+# 方式1: 使用主文件（推荐）
 ./shode run examples/library_management.sh
+
+# 方式2: 直接使用合并的模块文件
+./shode run examples/library/all_modules.sh
 ```
 
 服务将在 `http://localhost:9188` 启动。
@@ -152,31 +156,50 @@ curl -H "Authorization: $TOKEN" 'http://localhost:9188/api/books?id=1'
 
 ## 代码结构
 
-```bash
-library_management.sh
-├── 数据库初始化
-│   ├── 创建表结构
-│   ├── 初始化默认用户
-│   └── 初始化默认分类
-├── 认证功能
-│   ├── login() - 登录函数
-│   └── checkAuth() - 认证中间件
-├── 分类管理
-│   ├── listCategories() - 列出分类
-│   ├── createCategory() - 创建分类
-│   ├── updateCategory() - 更新分类
-│   └── deleteCategory() - 删除分类
-├── 图书管理
-│   ├── listBooks() - 列出图书
-│   ├── getBook() - 获取图书
-│   ├── createBook() - 创建图书
-│   ├── updateBook() - 更新图书
-│   └── deleteBook() - 删除图书
-└── HTTP 路由注册
-    ├── 认证路由
-    ├── 分类路由
-    └── 图书路由
+项目采用模块化设计，代码拆分为多个文件：
+
 ```
+examples/
+├── library_management.sh    # 主入口文件
+└── library/                 # 模块目录
+    ├── database.sh          # 数据库初始化模块
+    │   └── initDatabase()   # 初始化数据库和默认数据
+    ├── auth.sh              # 认证模块
+    │   ├── login()          # 登录函数
+    │   └── checkAuth()      # 认证中间件
+    ├── categories.sh        # 分类管理模块
+    │   ├── listCategories()    # 列出分类
+    │   ├── createCategory()    # 创建分类
+    │   ├── updateCategory()    # 更新分类
+    │   └── deleteCategory()    # 删除分类
+    ├── books.sh             # 图书管理模块
+    │   ├── listBooks()      # 列出图书
+    │   ├── getBook()        # 获取图书
+    │   ├── createBook()     # 创建图书
+    │   ├── updateBook()     # 更新图书
+    │   └── deleteBook()     # 删除图书
+    ├── handlers.sh          # HTTP路由处理器模块
+    │   ├── handleLogin()    # 登录处理器
+    │   ├── handleListCategories()  # 分类列表处理器
+    │   ├── handleCreateCategory()  # 创建分类处理器
+    │   ├── handleUpdateCategory()  # 更新分类处理器
+    │   ├── handleDeleteCategory()  # 删除分类处理器
+    │   ├── handleListBooks()       # 图书列表处理器
+    │   ├── handleGetBook()         # 获取图书处理器
+    │   ├── handleCreateBook()      # 创建图书处理器
+    │   ├── handleUpdateBook()      # 更新图书处理器
+    │   └── handleDeleteBook()      # 删除图书处理器
+    └── all_modules.sh       # 合并所有模块（自动生成）
+```
+
+### 模块说明
+
+- **database.sh**: 负责数据库连接、表结构创建和默认数据初始化
+- **auth.sh**: 提供用户认证功能，包括登录和Token验证
+- **categories.sh**: 实现图书分类的CRUD操作
+- **books.sh**: 实现图书的CRUD操作
+- **handlers.sh**: 将所有业务函数封装为HTTP路由处理器，并添加认证中间件
+- **library_management.sh**: 主入口文件，加载所有模块并启动HTTP服务器
 
 ## 注意事项
 
