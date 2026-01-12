@@ -54,12 +54,12 @@ The script will be parsed, analyzed for security risks, and executed in a sandbo
 			executionEngine := engine.NewExecutionEngine(envManager, stdLib, moduleMgr, security)
 
 			// Set engine factory for HTTP handlers
+			// Use the main execution engine so functions are available
 			stdLib.SetEngineFactory(func() interface{} {
-				// Create a new engine instance for each request
-				em := environment.NewEnvironmentManager()
-				mm := module.NewModuleManager()
-				sc := sandbox.NewSecurityChecker()
-				return engine.NewExecutionEngine(em, stdLib, mm, sc)
+				// Return the main execution engine so functions are available
+				// Note: This shares the same engine instance, which is fine for HTTP handlers
+				// as they execute in the same process
+				return executionEngine
 			})
 
 			// Execute the script with timeout
