@@ -680,6 +680,20 @@ func (sl *StdLib) GetHTTPPath() string {
 func (sl *StdLib) GetHTTPQuery(key string) string {
 	ctx := sl.getCurrentRequestContext()
 	if ctx == nil {
+		// Fallback: try to find any context
+		var foundCtx *HTTPRequestContext
+		sl.requestContexts.Range(func(key, value interface{}) bool {
+			if httpCtx, ok := value.(*HTTPRequestContext); ok {
+				foundCtx = httpCtx
+				return false // Stop at first match
+			}
+			return true
+		})
+		if foundCtx != nil {
+			foundCtx.mu.RLock()
+			defer foundCtx.mu.RUnlock()
+			return foundCtx.QueryParams[key]
+		}
 		return ""
 	}
 	ctx.mu.RLock()
@@ -713,6 +727,21 @@ func (sl *StdLib) GetHTTPBody() string {
 func (sl *StdLib) SetHTTPResponse(status int, body string) {
 	ctx := sl.getCurrentRequestContext()
 	if ctx == nil {
+		// Fallback: try to find any context
+		var foundCtx *HTTPRequestContext
+		sl.requestContexts.Range(func(key, value interface{}) bool {
+			if httpCtx, ok := value.(*HTTPRequestContext); ok {
+				foundCtx = httpCtx
+				return false // Stop at first match
+			}
+			return true
+		})
+		if foundCtx != nil {
+			foundCtx.Response.mu.Lock()
+			foundCtx.Response.Status = status
+			foundCtx.Response.Body = body
+			foundCtx.Response.mu.Unlock()
+		}
 		return
 	}
 	ctx.Response.mu.Lock()
