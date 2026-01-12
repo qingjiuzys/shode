@@ -19,6 +19,7 @@ const sidebars: SidebarsConfig = {
         'guides/execution-engine',
         'guides/package-registry',
         'guides/shell-features',
+        'guides/linux-commands-support',
       ],
     },
     {
