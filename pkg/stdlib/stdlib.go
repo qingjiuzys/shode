@@ -682,7 +682,7 @@ func (sl *StdLib) GetHTTPQuery(key string) string {
 	if ctx == nil {
 		// Fallback: try to find any context
 		var foundCtx *HTTPRequestContext
-		sl.requestContexts.Range(func(key, value interface{}) bool {
+		sl.requestContexts.Range(func(mapKey, value interface{}) bool {
 			if httpCtx, ok := value.(*HTTPRequestContext); ok {
 				foundCtx = httpCtx
 				return false // Stop at first match
