@@ -8,12 +8,12 @@ Println "=== Configuration Management Example ==="
 # Create a sample configuration file (single line JSON)
 configContent = '{"server":{"port":9188,"host":"localhost"},"database":{"url":"sqlite:app.db","pool":{"max":10,"min":2}},"cache":{"enabled":true,"ttl":3600}}'
 
-WriteFile "application.json" configContent
-Println "Created application.json"
+WriteFile "test/tmp/application.json" configContent
+Println "Created test/tmp/application.json"
 
 # Load configuration
 Println "Loading configuration..."
-LoadConfig "application.json"
+LoadConfig "test/tmp/application.json"
 Println "Configuration loaded"
 
 # Access configuration values

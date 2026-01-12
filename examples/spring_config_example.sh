@@ -9,12 +9,12 @@ Println "=== Configuration Management Example ==="
 # Note: Multi-line strings need to be on a single line or use string concatenation
 configContent = '{"server":{"port":9188,"host":"localhost"},"database":{"url":"sqlite:app.db","pool":{"max":10,"min":2}},"cache":{"enabled":true,"ttl":3600}}'
 
-WriteFile "application.json" configContent
-Println "Created application.json"
+WriteFile "test/tmp/application.json" configContent
+Println "Created test/tmp/application.json"
 
 # Load configuration
 Println "Loading configuration..."
-LoadConfig "application.json"
+LoadConfig "test/tmp/application.json"
 Println "Configuration loaded"
 
 # Access configuration values
@@ -38,7 +38,7 @@ Println "Cache enabled: " + cacheEnabled
 # Load environment-specific configuration
 Println ""
 Println "Loading production configuration..."
-LoadConfigWithEnv "application.json" "prod"
+LoadConfigWithEnv "test/tmp/application.json" "prod"
 
 # Set configuration programmatically
 Println ""

@@ -20,8 +20,8 @@ configContent = '{
     "ttl": 300
   }
 }'
-WriteFile "application.json" configContent
-LoadConfig "application.json"
+WriteFile "test/tmp/application.json" configContent
+LoadConfig "test/tmp/application.json"
 Println "Configuration loaded"
 
 # Step 2: Connect to Database

@@ -7,7 +7,7 @@ Println "=== Spring-like Web Application Example ==="
 
 # Load configuration
 Println "Loading configuration..."
-LoadConfig "application.json"
+LoadConfig "test/tmp/application.json"
 
 # Get server port from config
 port = GetConfigString "server.port" "9188"

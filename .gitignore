@@ -1,13 +1,12 @@
 docs/patent/
 
-# Test/example generated JSON files
-application.json
-app.json
-debug.json
-final.json
-test.json
-test_config.json
-working.json
+# Test/example generated files
+test/tmp/
+*.json
+!shode.json
+!package.json
+!package-lock.json
+!tsconfig.json
 output.txt
 test_write.txt
 test.txt
