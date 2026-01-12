@@ -164,13 +164,24 @@ export default function HomepageComparison(): ReactNode {
           <div className="col col--12">
             <div className={styles.comparisonFooter}>
               <p>
-                <strong>选择 Shode 如果：</strong>你需要快速开发脚本、构建轻量级API服务、
-                进行系统运维自动化，或者希望零编译、低资源占用的解决方案。
+                <strong>选择 Shode 如果：</strong>
               </p>
+              <ul>
+                <li>需要快速开发脚本和轻量级API服务</li>
+                <li>进行系统运维自动化和CI/CD任务</li>
+                <li>希望零编译、低资源占用的解决方案</li>
+                <li>团队熟悉Shell脚本，学习成本低</li>
+                <li>需要毫秒级启动和极低内存占用</li>
+              </ul>
               <p>
-                <strong>选择 Spring Boot 如果：</strong>你需要构建大型企业级应用、
-                复杂的业务系统，或者团队已有深厚的Java技术栈。
+                <strong>选择 Spring Boot 如果：</strong>
               </p>
+              <ul>
+                <li>需要构建大型企业级应用和复杂业务系统</li>
+                <li>团队已有深厚的Java技术栈</li>
+                <li>需要丰富的企业级中间件和生态支持</li>
+                <li>对启动时间和资源占用不敏感</li>
+              </ul>
             </div>
           </div>
         </div>
