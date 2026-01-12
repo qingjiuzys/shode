@@ -254,7 +254,30 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 
 		case *types.AssignmentNode:
 			// Execute variable assignment
-			ee.envManager.SetEnv(n.Name, n.Value)
+			// First, expand variables and command substitution in the value
+			expandedValue := ee.expandVariables(n.Value)
+			
+			// If the value looks like a command (not quoted and contains spaces or is a known function),
+			// try to execute it as a command
+			trimmedValue := strings.TrimSpace(expandedValue)
+			if trimmedValue != "" && !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
+				// Check if it's a command (contains spaces or is a known stdlib function)
+				if strings.Contains(trimmedValue, " ") || ee.isStdLibFunction(strings.Fields(trimmedValue)[0]) {
+					// Try to parse and execute as a command
+					p := shodeparser.NewSimpleParser()
+					script, err := p.ParseString(trimmedValue)
+					if err == nil && len(script.Nodes) > 0 {
+						// Execute the command
+						cmdResult, execErr := ee.Execute(ctx, script)
+						if execErr == nil && cmdResult != nil && cmdResult.Success {
+							// Use command output as the value
+							expandedValue = strings.TrimSpace(cmdResult.Output)
+						}
+					}
+				}
+			}
+			
+			ee.envManager.SetEnv(n.Name, expandedValue)
 
 		case *types.AnnotationNode:
 			// Process annotation (register with annotation processor)

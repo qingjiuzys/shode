@@ -603,13 +603,16 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 	// Parse query parameters
 	queryParams := make(map[string]string)
 	rawQuery := r.URL.RawQuery
+	fmt.Printf("[DEBUG] createRequestContext: RawQuery=%s, Path=%s\n", rawQuery, r.URL.Path)
 	for k, v := range r.URL.Query() {
 		if len(v) > 0 {
 			queryParams[k] = v[0]
+			fmt.Printf("[DEBUG] createRequestContext: parsed param %s=%s\n", k, v[0])
 		}
 	}
 	// Debug: ensure query params are parsed correctly
 	if rawQuery != "" && len(queryParams) == 0 {
+		fmt.Printf("[DEBUG] createRequestContext: RawQuery not empty but no params parsed, trying manual parse\n")
 		// Try manual parsing as fallback
 		parts := strings.Split(rawQuery, "&")
 		for _, part := range parts {
@@ -621,9 +624,11 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 					value = decoded
 				}
 				queryParams[key] = value
+				fmt.Printf("[DEBUG] createRequestContext: manually parsed param %s=%s\n", key, value)
 			}
 		}
 	}
+	fmt.Printf("[DEBUG] createRequestContext: final queryParams=%v\n", queryParams)
 
 	// Parse headers
 	headers := make(map[string]string)
@@ -696,7 +701,9 @@ func (sl *StdLib) GetHTTPPath() string {
 
 // GetHTTPQuery returns a query parameter value
 func (sl *StdLib) GetHTTPQuery(key string) string {
+	fmt.Printf("[DEBUG] GetHTTPQuery called with key: %s\n", key)
 	ctx := sl.getCurrentRequestContext()
+	fmt.Printf("[DEBUG] GetHTTPQuery: getCurrentRequestContext returned: %v\n", ctx != nil)
 	if ctx == nil {
 		// Fallback: try to find any context
 		var foundCtx *HTTPRequestContext
@@ -710,12 +717,21 @@ func (sl *StdLib) GetHTTPQuery(key string) string {
 		if foundCtx != nil {
 			foundCtx.mu.RLock()
 			defer foundCtx.mu.RUnlock()
+			// Debug: print all query params
+			if len(foundCtx.QueryParams) > 0 {
+				fmt.Printf("[DEBUG] GetHTTPQuery: found context with %d params: %v\n", len(foundCtx.QueryParams), foundCtx.QueryParams)
+			}
 			return foundCtx.QueryParams[key]
 		}
+		fmt.Printf("[DEBUG] GetHTTPQuery: no context found for key: %s\n", key)
 		return ""
 	}
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
+	// Debug: print all query params
+	if len(ctx.QueryParams) > 0 {
+		fmt.Printf("[DEBUG] GetHTTPQuery: context has %d params: %v, looking for: %s\n", len(ctx.QueryParams), ctx.QueryParams, key)
+	}
 	return ctx.QueryParams[key]
 }
 
