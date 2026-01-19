@@ -138,7 +138,7 @@ echo "More text" >> output.txt
 
 **实现位置**: `pkg/engine/engine.go:setupRedirect()`
 
-### ✅ 输入重定向 (<)
+### ✅ 输入重定向 (&lt;)
 
 从文件读取输入：
 
@@ -196,7 +196,7 @@ count=10
 - `pkg/types/ast.go:AssignmentNode`
 - `pkg/parser/simple_parser.go:parseAssignment()`
 
-### ✅ 变量展开 ($VAR)
+### ✅ 变量展开 (`$VAR`)
 
 支持标准变量展开语法：
 
@@ -207,7 +207,7 @@ echo "Version: $VERSION"
 
 **实现位置**: `pkg/engine/variable_expansion.go:expandVariables()`
 
-### ✅ 变量展开 (${VAR})
+### ✅ 变量展开 (`${VAR}`)
 
 支持花括号变量展开：
 
@@ -574,7 +574,7 @@ Shode 已集成以下 Shell 特性：
 
 ### ✅ 已实现
 - ✅ 控制流：if/for/while/break/continue
-- ✅ 管道和重定向：|, >, >>, <, 2>&1, &>
+- ✅ 管道和重定向：|, &gt;, &gt;&gt;, &lt;, 2&gt;&amp;1, &amp;&gt;
 - ✅ 变量系统：赋值、展开、拼接
 - ✅ 命令替换：`$(command)` 和 `` `command` ``
 - ✅ 数组支持：`array=(value1 value2)`
