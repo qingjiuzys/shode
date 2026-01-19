@@ -16,19 +16,19 @@ import (
 
 // DatabaseManager manages database connections and operations
 type DatabaseManager struct {
-	db       *sql.DB
-	dbType   string
-	dsn      string
-	mu       sync.RWMutex
+	db         *sql.DB
+	dbType     string
+	dsn        string
+	mu         sync.RWMutex
 	lastResult *QueryResult
 }
 
 // QueryResult holds the result of a database query
 type QueryResult struct {
 	Rows   []map[string]interface{} `json:"rows"`
-	Row    map[string]interface{}    `json:"row,omitempty"`
-	Count  int                       `json:"count"`
-	LastID int64                     `json:"lastId,omitempty"`
+	Row    map[string]interface{}   `json:"row,omitempty"`
+	Count  int                      `json:"count"`
+	LastID int64                    `json:"lastId,omitempty"`
 	mu     sync.RWMutex
 }
 

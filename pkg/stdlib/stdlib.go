@@ -60,7 +60,27 @@ type StdLib struct {
 	configManager *config.ConfigManager
 	// Execution engine factory (to avoid circular dependency)
 	engineFactory func() interface{} // Returns *engine.ExecutionEngine
+	// Files manager
+	filesManager *FilesManager
+	// System manager
+	systemManager *SystemManager
+	// Network manager
+	networkManager *NetworkManager
+	// Archive manager
+	archiveManager *ArchiveManager
 }
+
+// FilesManager handles file operations
+type FilesManager struct{}
+
+// SystemManager handles system operations
+type SystemManager struct{}
+
+// NetworkManager handles network operations
+type NetworkManager struct{}
+
+// ArchiveManager handles compression/archive operations
+type ArchiveManager struct{}
 
 // routeHandler represents a route handler
 type routeHandler struct {
@@ -83,10 +103,14 @@ type httpServer struct {
 // New creates a new standard library instance
 func New() *StdLib {
 	return &StdLib{
-		cache:         cache.NewCache(),
-		dbManager:     database.NewDatabaseManager(),
-		iocContainer:  ioc.NewContainer(),
-		configManager: config.NewConfigManager(),
+		cache:          cache.NewCache(),
+		dbManager:      database.NewDatabaseManager(),
+		iocContainer:   ioc.NewContainer(),
+		configManager:  config.NewConfigManager(),
+		filesManager:   &FilesManager{},
+		systemManager:  &SystemManager{},
+		networkManager: &NetworkManager{},
+		archiveManager: &ArchiveManager{},
 	}
 }
 
@@ -256,7 +280,8 @@ func (sl *StdLib) RegisterRoute(path, handlerName string) error {
 
 // RegisterHTTPRoute registers an HTTP route with method, path, handler type and handler
 // Usage: RegisterHTTPRoute "GET" "/api/users" "function" "handleGetUsers"
-//        RegisterHTTPRoute "POST" "/api/users" "script" "SetHTTPResponse 201 'Created'"
+//
+//	RegisterHTTPRoute "POST" "/api/users" "script" "SetHTTPResponse 201 'Created'"
 func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) error {
 	sl.httpMu.Lock()
 	defer sl.httpMu.Unlock()
@@ -340,22 +365,22 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 						// Use reflection to call ExecuteCommand method
 						engineValue := reflect.ValueOf(engineInterface)
 						executeCommandMethod := engineValue.MethodByName("ExecuteCommand")
-						
+
 						if executeCommandMethod.IsValid() {
 							ctx := context.Background()
-							
+
 							// Create a command node to call the function
 							cmdNode := &types.CommandNode{
 								Pos:  types.Position{Line: 0, Column: 0, Offset: 0},
 								Name: selectedHandler.handlerName,
 								Args: []string{}, // Function arguments would come from query params if needed
 							}
-							
+
 							// Call ExecuteCommand using reflection
 							ctxValue := reflect.ValueOf(ctx)
 							cmdNodeValue := reflect.ValueOf(cmdNode)
 							results := executeCommandMethod.Call([]reflect.Value{ctxValue, cmdNodeValue})
-							
+
 							// Check for errors
 							if len(results) == 2 && !results[1].IsNil() {
 								// Error occurred
@@ -369,14 +394,14 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 								// Wait a moment for SetHTTPResponse to be called
 								// (in case it's called asynchronously or needs time)
 								time.Sleep(10 * time.Millisecond)
-								
+
 								// The function should have called SetHTTPResponse
 								// Check if response was set (after execution)
 								reqCtx.Response.mu.RLock()
 								statusSet := reqCtx.Response.Status != 0
 								bodySet := reqCtx.Response.Body != ""
 								reqCtx.Response.mu.RUnlock()
-								
+
 								// If response wasn't set by function, check command result output
 								if !statusSet || !bodySet {
 									if len(results) >= 1 && !results[0].IsNil() {
@@ -385,7 +410,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 										if resultReflect.Kind() == reflect.Ptr {
 											resultReflect = resultReflect.Elem()
 										}
-										
+
 										outputField := resultReflect.FieldByName("Output")
 										if outputField.IsValid() && outputField.Kind() == reflect.String {
 											output := outputField.String()
@@ -401,7 +426,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 						}
 					}
 				}
-				
+
 				// If function didn't set response, set default
 				reqCtx.Response.mu.RLock()
 				if reqCtx.Response.Status == 0 {
@@ -412,7 +437,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 				} else {
 					reqCtx.Response.mu.RUnlock()
 				}
-				
+
 				reqCtx.Response.mu.RLock()
 				if reqCtx.Response.Body == "" {
 					reqCtx.Response.mu.RUnlock()
@@ -434,20 +459,20 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 							// Use reflection to call Execute method
 							engineValue := reflect.ValueOf(engineInterface)
 							executeMethod := engineValue.MethodByName("Execute")
-							
+
 							if executeMethod.IsValid() {
 								ctx := context.Background()
 								ctxValue := reflect.ValueOf(ctx)
 								scriptValue := reflect.ValueOf(script)
 								results := executeMethod.Call([]reflect.Value{ctxValue, scriptValue})
-								
+
 								if len(results) >= 1 && !results[0].IsNil() {
 									resultValue := results[0].Interface()
 									resultReflect := reflect.ValueOf(resultValue)
 									if resultReflect.Kind() == reflect.Ptr {
 										resultReflect = resultReflect.Elem()
 									}
-									
+
 									outputField := resultReflect.FieldByName("Output")
 									if outputField.IsValid() && outputField.Kind() == reflect.String {
 										output := outputField.String()
@@ -467,7 +492,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 						}
 					}
 				}
-				
+
 				// Set default if script didn't set response
 				reqCtx.Response.mu.RLock()
 				if reqCtx.Response.Status == 0 {
@@ -478,7 +503,7 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 				} else {
 					reqCtx.Response.mu.RUnlock()
 				}
-				
+
 				reqCtx.Response.mu.RLock()
 				if reqCtx.Response.Body == "" {
 					reqCtx.Response.mu.RUnlock()
@@ -660,7 +685,7 @@ func (sl *StdLib) getCurrentRequestContext() *HTTPRequestContext {
 			return httpCtx
 		}
 	}
-	
+
 	// Fallback: find any context (for backward compatibility)
 	var foundCtx *HTTPRequestContext
 	sl.requestContexts.Range(func(key, value interface{}) bool {

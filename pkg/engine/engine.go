@@ -31,40 +31,40 @@ const (
 
 // ExecutionEngine is the core engine for executing shell commands
 type ExecutionEngine struct {
-	envManager  *environment.EnvironmentManager
-	stdlib      *stdlib.StdLib
-	moduleMgr   *module.ModuleManager
-	security    *sandbox.SecurityChecker
-	processPool *ProcessPool
-	cache       *CommandCache
-	functions   map[string]*types.FunctionNode // User-defined functions
-	metrics     *metrics.MetricsCollector       // Performance metrics collector
-	backgroundJobs map[int]*exec.Cmd            // Background jobs (PID -> Cmd)
-	jobCounter     int                          // Counter for job IDs
-	arrays         map[string][]string          // Array variables
+	envManager     *environment.EnvironmentManager
+	stdlib         *stdlib.StdLib
+	moduleMgr      *module.ModuleManager
+	security       *sandbox.SecurityChecker
+	processPool    *ProcessPool
+	cache          *CommandCache
+	functions      map[string]*types.FunctionNode // User-defined functions
+	metrics        *metrics.MetricsCollector      // Performance metrics collector
+	backgroundJobs map[int]*exec.Cmd              // Background jobs (PID -> Cmd)
+	jobCounter     int                            // Counter for job IDs
+	arrays         map[string][]string            // Array variables
 }
 
 // ExecutionResult represents the result of executing an AST
 type ExecutionResult struct {
-	Success    bool
-	ExitCode   int
-	Output     string
-	Error      string
-	Duration   time.Duration
-	Commands   []*CommandResult
-	BreakFlag  bool // Set to true if break statement was encountered
+	Success      bool
+	ExitCode     int
+	Output       string
+	Error        string
+	Duration     time.Duration
+	Commands     []*CommandResult
+	BreakFlag    bool // Set to true if break statement was encountered
 	ContinueFlag bool // Set to true if continue statement was encountered
 }
 
 // CommandResult represents the result of a single command execution
 type CommandResult struct {
-	Command   *types.CommandNode
-	Success   bool
-	ExitCode  int
-	Output    string
-	Error     string
-	Duration  time.Duration
-	Mode      ExecutionMode
+	Command  *types.CommandNode
+	Success  bool
+	ExitCode int
+	Output   string
+	Error    string
+	Duration time.Duration
+	Mode     ExecutionMode
 }
 
 // PipelineResult represents the result of pipeline execution
@@ -84,14 +84,14 @@ func NewExecutionEngine(
 	security *sandbox.SecurityChecker,
 ) *ExecutionEngine {
 	return &ExecutionEngine{
-		envManager: envManager,
-		stdlib:     stdlib,
-		moduleMgr:  moduleMgr,
-		security:   security,
-		processPool: NewProcessPool(10, 30*time.Second),
-		cache:       NewCommandCache(1000),
-		functions:  make(map[string]*types.FunctionNode),
-		metrics:    metrics.NewMetricsCollector(),
+		envManager:     envManager,
+		stdlib:         stdlib,
+		moduleMgr:      moduleMgr,
+		security:       security,
+		processPool:    NewProcessPool(10, 30*time.Second),
+		cache:          NewCommandCache(1000),
+		functions:      make(map[string]*types.FunctionNode),
+		metrics:        metrics.NewMetricsCollector(),
 		backgroundJobs: make(map[int]*exec.Cmd),
 		jobCounter:     0,
 		arrays:         make(map[string][]string),
@@ -256,7 +256,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			// Execute variable assignment
 			// First, expand variables and command substitution in the value
 			expandedValue := ee.expandVariables(n.Value)
-			
+
 			// If the value looks like a command (not quoted and contains spaces or is a known function),
 			// try to execute it as a command
 			trimmedValue := strings.TrimSpace(expandedValue)
@@ -299,7 +299,7 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 					}
 				}
 			}
-			
+
 			fmt.Printf("[DEBUG] AssignmentNode: setting %s = '%s'\n", n.Name, expandedValue)
 			ee.envManager.SetEnv(n.Name, expandedValue)
 
@@ -573,13 +573,13 @@ func (ee *ExecutionEngine) executeProcessWithInput(ctx context.Context, cmd *typ
 			command.Process.Kill()
 		}
 		return &CommandResult{
-			Command:  cmd,
-			Success:  false,
-			ExitCode: 124, // Standard timeout exit code
-			Error:    "command execution timed out",
-		}, errors.NewTimeoutError(cmd.Name).
-			WithContext("command", cmd.Name).
-			WithContext("args", cmd.Args)
+				Command:  cmd,
+				Success:  false,
+				ExitCode: 124, // Standard timeout exit code
+				Error:    "command execution timed out",
+			}, errors.NewTimeoutError(cmd.Name).
+				WithContext("command", cmd.Name).
+				WithContext("args", cmd.Args)
 	}
 
 	exitCode := 0
@@ -630,64 +630,64 @@ func (ee *ExecutionEngine) decideExecutionMode(cmd *types.CommandNode) Execution
 func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 	// Map of standard library functions
 	stdlibFunctions := map[string]bool{
-		"Print":                    true,
-		"Println":                  true,
-		"Error":                    true,
-		"Errorln":                  true,
-		"ReadFile":                 true,
-		"WriteFile":                true,
-		"ListFiles":                true,
-		"FileExists":               true,
-		"Contains":                 true,
-		"Replace":                  true,
-		"ToUpper":                  true,
-		"ToLower":                  true,
-		"Trim":                     true,
-		"GetEnv":                   true,
-		"SetEnv":                   true,
-		"WorkingDir":               true,
+		"Print":                     true,
+		"Println":                   true,
+		"Error":                     true,
+		"Errorln":                   true,
+		"ReadFile":                  true,
+		"WriteFile":                 true,
+		"ListFiles":                 true,
+		"FileExists":                true,
+		"Contains":                  true,
+		"Replace":                   true,
+		"ToUpper":                   true,
+		"ToLower":                   true,
+		"Trim":                      true,
+		"GetEnv":                    true,
+		"SetEnv":                    true,
+		"WorkingDir":                true,
 		"ChangeDir":                 true,
-		"StartHTTPServer":          true,
-		"RegisterRoute":            true,
-		"RegisterHTTPRoute":        true,
+		"StartHTTPServer":           true,
+		"RegisterRoute":             true,
+		"RegisterHTTPRoute":         true,
 		"RegisterRouteWithResponse": true,
-		"StopHTTPServer":           true,
-		"IsHTTPServerRunning":      true,
-		"GetHTTPMethod":            true,
-		"GetHTTPPath":              true,
-		"GetHTTPQuery":             true,
-		"GetHTTPHeader":            true,
-		"GetHTTPBody":              true,
-		"SetHTTPResponse":          true,
-		"SetHTTPHeader":            true,
-		"SetCache":                 true,
-		"GetCache":                 true,
-		"DeleteCache":              true,
-		"ClearCache":               true,
-		"CacheExists":              true,
-		"GetCacheTTL":              true,
-		"SetCacheBatch":            true,
-		"GetCacheKeys":             true,
-		"ConnectDB":                true,
-		"CloseDB":                  true,
-		"IsDBConnected":            true,
-		"QueryDB":                  true,
-		"QueryRowDB":               true,
-		"ExecDB":                   true,
-		"GetQueryResult":           true,
+		"StopHTTPServer":            true,
+		"IsHTTPServerRunning":       true,
+		"GetHTTPMethod":             true,
+		"GetHTTPPath":               true,
+		"GetHTTPQuery":              true,
+		"GetHTTPHeader":             true,
+		"GetHTTPBody":               true,
+		"SetHTTPResponse":           true,
+		"SetHTTPHeader":             true,
+		"SetCache":                  true,
+		"GetCache":                  true,
+		"DeleteCache":               true,
+		"ClearCache":                true,
+		"CacheExists":               true,
+		"GetCacheTTL":               true,
+		"SetCacheBatch":             true,
+		"GetCacheKeys":              true,
+		"ConnectDB":                 true,
+		"CloseDB":                   true,
+		"IsDBConnected":             true,
+		"QueryDB":                   true,
+		"QueryRowDB":                true,
+		"ExecDB":                    true,
+		"GetQueryResult":            true,
 		// IoC functions
-		"RegisterBean":             true,
-		"GetBean":                  true,
-		"ContainsBean":             true,
+		"RegisterBean": true,
+		"GetBean":      true,
+		"ContainsBean": true,
 		// Config functions
-		"LoadConfig":               true,
-		"LoadConfigWithEnv":        true,
-		"GetConfig":                true,
-		"GetConfigString":          true,
-		"GetConfigInt":             true,
-		"GetConfigBool":            true,
-		"SetConfig":                true,
-		"Source":                    true,
+		"LoadConfig":        true,
+		"LoadConfigWithEnv": true,
+		"GetConfig":         true,
+		"GetConfigString":   true,
+		"GetConfigInt":      true,
+		"GetConfigBool":     true,
+		"SetConfig":         true,
+		"Source":            true,
 	}
 	return stdlibFunctions[funcName]
 }
@@ -1078,12 +1078,6 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 			return "", err
 		}
 		return jsonResult, nil
-	case "GetQueryResult":
-		result, err := ee.stdlib.GetQueryResult()
-		if err != nil {
-			return "", err
-		}
-		return result, nil
 	// IoC functions
 	case "RegisterBean":
 		if len(args) < 3 {
@@ -1269,14 +1263,14 @@ func (ee *ExecutionEngine) executeProcess(ctx context.Context, cmd *types.Comman
 	if ctx.Err() != nil {
 		// Context was cancelled - likely timeout
 		return &CommandResult{
-			Command:  cmd,
-			Success:  false,
-			ExitCode: 124, // Standard timeout exit code
-			Error:    "command execution timed out",
-			Duration: duration,
-		}, errors.NewTimeoutError(cmd.Name).
-			WithContext("command", cmd.Name).
-			WithContext("args", cmd.Args)
+				Command:  cmd,
+				Success:  false,
+				ExitCode: 124, // Standard timeout exit code
+				Error:    "command execution timed out",
+				Duration: duration,
+			}, errors.NewTimeoutError(cmd.Name).
+				WithContext("command", cmd.Name).
+				WithContext("args", cmd.Args)
 	}
 
 	// Get exit code
@@ -1626,11 +1620,11 @@ func (ee *ExecutionEngine) restoreEnvironment(env map[string]string) {
 func (ee *ExecutionEngine) ExecuteBackground(ctx context.Context, bgNode *types.BackgroundNode) (*CommandResult, error) {
 	// Create a new context that won't be cancelled when parent context is cancelled
 	bgCtx := context.Background()
-	
+
 	// Execute the command
 	var cmdResult *CommandResult
 	var err error
-	
+
 	switch cmd := bgNode.Command.(type) {
 	case *types.CommandNode:
 		cmdResult, err = ee.ExecuteCommand(bgCtx, cmd)
@@ -1645,20 +1639,20 @@ func (ee *ExecutionEngine) ExecuteBackground(ctx context.Context, bgNode *types.
 		return nil, errors.NewExecutionError(errors.ErrInvalidInput,
 			"unsupported command type for background execution")
 	}
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Increment job counter and store job
 	ee.jobCounter++
 	jobID := ee.jobCounter
-	
+
 	// Store job info (we can't store exec.Cmd directly for background jobs,
 	// but we can track them by job ID)
 	// For now, just return the result immediately
 	// In a full implementation, we would start the process and return immediately
-	
+
 	return &CommandResult{
 		Command: &types.CommandNode{
 			Name: "background",

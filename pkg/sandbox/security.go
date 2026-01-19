@@ -34,21 +34,21 @@ func NewSecurityChecker() *SecurityChecker {
 // initializeDangerousCommands sets up the default dangerous command blacklist
 func (sc *SecurityChecker) initializeDangerousCommands() {
 	dangerous := []string{
-		"rm",           // File deletion
-		"dd",           // Disk operations
-		"mkfs",         // Filesystem operations
-		"fdisk",        // Partition operations
-		"shutdown",     // System shutdown
-		"reboot",       // System reboot
-		"halt",         // System halt
-		"poweroff",     // Power off
-		"chmod",        // Permission changes
-		"chown",        // Ownership changes
-		"useradd",      // User management
-		"userdel",      // User deletion
-		"groupadd",     // Group management
-		"groupdel",     // Group deletion
-		"passwd",       // Password changes
+		"rm",       // File deletion
+		"dd",       // Disk operations
+		"mkfs",     // Filesystem operations
+		"fdisk",    // Partition operations
+		"shutdown", // System shutdown
+		"reboot",   // System reboot
+		"halt",     // System halt
+		"poweroff", // Power off
+		"chmod",    // Permission changes
+		"chown",    // Ownership changes
+		"useradd",  // User management
+		"userdel",  // User deletion
+		"groupadd", // Group management
+		"groupdel", // Group deletion
+		"passwd",   // Password changes
 	}
 
 	for _, cmd := range dangerous {
@@ -78,14 +78,14 @@ func (sc *SecurityChecker) initializeFileBlacklist() {
 // initializeNetworkBlacklist sets up dangerous network operations
 func (sc *SecurityChecker) initializeNetworkBlacklist() {
 	dangerousNetwork := []string{
-		"iptables",     // Firewall manipulation
-		"ufw",          // Firewall manipulation
-		"route",        // Network routing
-		"ifconfig",     // Network interface configuration
-		"ip",           // Network configuration
-		"nc",           // Netcat
-		"nmap",         // Network scanning
-		"tcpdump",      // Network sniffing
+		"iptables", // Firewall manipulation
+		"ufw",      // Firewall manipulation
+		"route",    // Network routing
+		"ifconfig", // Network interface configuration
+		"ip",       // Network configuration
+		"nc",       // Netcat
+		"nmap",     // Network scanning
+		"tcpdump",  // Network sniffing
 	}
 
 	for _, cmd := range dangerousNetwork {
@@ -158,7 +158,14 @@ func (sc *SecurityChecker) checkPatterns(cmd *types.CommandNode) error {
 
 	// Check for shell injection patterns
 	shellInjection := regexp.MustCompile(`[;&|` + "`" + `$()]`)
-	if shellInjection.MatchString(fullCommand) && cmd.Name != "shode" {
+	// Exclude database functions and shode from shell injection check
+	excludedCommands := map[string]bool{
+		"shode":      true,
+		"QueryDB":    true,
+		"QueryRowDB": true,
+		"ExecDB":     true,
+	}
+	if shellInjection.MatchString(fullCommand) && !excludedCommands[cmd.Name] {
 		return fmt.Errorf("security violation: potential shell injection detected")
 	}
 
