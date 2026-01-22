@@ -26,8 +26,8 @@ func (n *CommandNode) String() string     { return n.Name }
 
 // PipeNode represents a pipe between commands
 type PipeNode struct {
-	Pos  Position
-	Left Node
+	Pos   Position
+	Left  Node
 	Right Node
 }
 
@@ -36,10 +36,10 @@ func (n *PipeNode) String() string     { return "|" }
 
 // RedirectNode represents input/output redirection
 type RedirectNode struct {
-	Pos   Position
-	Op    string // >, >>, <, etc.
-	File  string
-	Fd    int // file descriptor (0, 1, 2)
+	Pos  Position
+	Op   string // >, >>, <, etc.
+	File string
+	Fd   int // file descriptor (0, 1, 2)
 }
 
 func (n *RedirectNode) Position() Position { return n.Pos }
@@ -159,3 +159,44 @@ type ArrayNode struct {
 
 func (n *ArrayNode) Position() Position { return n.Pos }
 func (n *ArrayNode) String() string     { return "array" }
+
+// AndNode represents logical AND (&&)
+type AndNode struct {
+	Pos   Position
+	Left  Node
+	Right Node
+}
+
+func (n *AndNode) Position() Position { return n.Pos }
+func (n *AndNode) String() string     { return "&&" }
+
+// OrNode represents logical OR (||)
+type OrNode struct {
+	Pos   Position
+	Left  Node
+	Right Node
+}
+
+func (n *OrNode) Position() Position { return n.Pos }
+func (n *OrNode) String() string     { return "||" }
+
+// HeredocNode represents a heredoc
+type HeredocNode struct {
+	Pos     Position
+	Command Node
+	Start   string // Heredoc start marker (e.g., "EOF")
+	Body    string // Heredoc content
+	End     string // Heredoc end marker
+}
+
+func (n *HeredocNode) Position() Position { return n.Pos }
+func (n *HeredocNode) String() string     { return "heredoc" }
+
+// CastToCommandNode attempts to cast a node to CommandNode
+// Returns nil if the node is not a CommandNode
+func CastToCommandNode(n Node) *CommandNode {
+	if cmd, ok := n.(*CommandNode); ok {
+		return cmd
+	}
+	return nil
+}

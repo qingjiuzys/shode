@@ -2,7 +2,6 @@ package stdlib
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"

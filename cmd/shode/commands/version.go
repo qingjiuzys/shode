@@ -14,8 +14,9 @@ func NewVersionCommand() *cobra.Command {
 		Long:  `Version displays the current version of the Shode runtime platform.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Shode - Secure Shell Script Runtime Platform")
-			fmt.Println("Version: 0.1.0")
-			fmt.Println("Build: development")
+			fmt.Println("Version: 0.4.0")
+			fmt.Println("Build: production")
+			fmt.Println("Release Date: 2025-01-21")
 			fmt.Println("License: MIT")
 		},
 	}

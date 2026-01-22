@@ -60,12 +60,12 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 	var functionArgs []string
 	var functionBody []string
 	var functionStartLine int
-	
+
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		
+
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			if inFunction {
 				functionBody = append(functionBody, line)
@@ -88,7 +88,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 				if err == nil {
 					bodyScript.Nodes = bodyParsed.Nodes
 				}
-				
+
 				fnNode := &types.FunctionNode{
 					Pos: types.Position{
 						Line:   functionStartLine,
@@ -99,7 +99,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 					Body: bodyScript,
 				}
 				script.Nodes = append(script.Nodes, fnNode)
-				
+
 				// Reset function state
 				inFunction = false
 				functionName = ""
@@ -117,7 +117,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 			// Parse function definition
 			funcDef := strings.TrimPrefix(trimmed, "function ")
 			funcDef = strings.TrimSpace(funcDef)
-			
+
 			// Find opening brace
 			braceIdx := strings.Index(funcDef, "{")
 			if braceIdx == -1 {
@@ -146,7 +146,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 				functionBody = []string{}
 				continue
 			}
-			
+
 			// Single-line function definition
 			funcPart := strings.TrimSpace(funcDef[:braceIdx])
 			parenIdx := strings.Index(funcPart, "(")
@@ -166,12 +166,12 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 			} else {
 				functionName = strings.TrimSpace(funcPart)
 			}
-			
+
 			// Check if closing brace is on same line
 			closeBraceIdx := strings.Index(trimmed, "}")
 			if closeBraceIdx != -1 && closeBraceIdx > braceIdx {
 				// Single-line function: function name() { }
-				bodyContent := trimmed[braceIdx+1:closeBraceIdx]
+				bodyContent := trimmed[braceIdx+1 : closeBraceIdx]
 				bodyContent = strings.TrimSpace(bodyContent)
 				if bodyContent != "" {
 					bodyParser := NewSimpleParser()
@@ -191,7 +191,7 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 				}
 				continue
 			}
-			
+
 			// Multi-line function - start collecting body
 			inFunction = true
 			functionStartLine = lineNum
@@ -226,13 +226,35 @@ func (p *SimpleParser) ParseFile(filename string) (*types.ScriptNode, error) {
 
 // parseCommand parses a single line into a command node or assignment node
 func (p *SimpleParser) parseCommand(line string, lineNum int) types.Node {
+	// Check for pipeline first (before background job)
+	if pipeIdx := p.findPipeIndex(line); pipeIdx != -1 {
+		// Split into left and right parts
+		leftStr := strings.TrimSpace(line[:pipeIdx])
+		rightStr := strings.TrimSpace(line[pipeIdx+1:])
+
+		// Recursively parse left and right commands
+		leftNode := p.parseCommand(leftStr, lineNum)
+		rightNode := p.parseCommand(rightStr, lineNum)
+
+		// Create pipe node
+		return &types.PipeNode{
+			Pos: types.Position{
+				Line:   lineNum,
+				Column: 1,
+				Offset: 0,
+			},
+			Left:  leftNode,
+			Right: rightNode,
+		}
+	}
+
 	// Check for background job (command &)
 	trimmed := strings.TrimSpace(line)
 	if strings.HasSuffix(trimmed, "&") {
 		// Remove trailing &
 		cmdStr := strings.TrimSpace(trimmed[:len(trimmed)-1])
 		if cmdStr != "" {
-			// Parse the command part
+			// Parse command part
 			cmdNode := p.parseCommand(cmdStr, lineNum)
 			if cmdNode != nil {
 				return &types.BackgroundNode{
@@ -441,6 +463,32 @@ func (p *SimpleParser) parseAnnotation(line string, lineNum int) *types.Annotati
 	}
 }
 
+// findPipeIndex finds the index of a pipe symbol that is not inside quotes
+func (p *SimpleParser) findPipeIndex(line string) int {
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(line); i++ {
+		char := line[i]
+
+		// Handle quote state
+		if char == '"' || char == '\'' {
+			if !inQuotes {
+				inQuotes = true
+				quoteChar = char
+			} else if char == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			}
+		} else if char == '|' && !inQuotes {
+			// Found a pipe outside quotes
+			return i
+		}
+	}
+
+	return -1
+}
+
 // DebugPrint prints debug information about parsing
 func (p *SimpleParser) DebugPrint(source string) {
 	fmt.Println("Simple parser debug output:")
@@ -461,6 +509,8 @@ func (p *SimpleParser) DebugPrint(source string) {
 			fmt.Printf("  %d: %s = %s (line %d)\n", i+1, n.Name, n.Value, n.Pos.Line)
 		case *types.AnnotationNode:
 			fmt.Printf("  %d: @%s(%s) (line %d)\n", i+1, n.Name, n.Value, n.Pos.Line)
+		case *types.PipeNode:
+			fmt.Printf("  %d: Pipeline (line %d)\n", i+1, n.Pos.Line)
 		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,18 +15,6 @@ import (
 	"strings"
 	"time"
 )
-
-// FilesManager handles file operations
-type FilesManager struct{}
-
-// SystemManager handles system operations
-type SystemManager struct{}
-
-// NetworkManager handles network operations
-type NetworkManager struct{}
-
-// ArchiveManager handles compression/archive operations
-type ArchiveManager struct{}
 
 // ========== File Operations ==========
 

@@ -1,8 +1,6 @@
 package stdlib
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"

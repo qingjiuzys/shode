@@ -324,6 +324,116 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			result.Success = true
 			return result, nil
 
+		case *types.AndNode:
+			// Execute left side first
+			leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Left))
+			if err != nil {
+				return nil, err
+			}
+
+			// If left side succeeded, execute right side
+			if leftResult.Success {
+				rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Right))
+				if err != nil {
+					return nil, err
+				}
+				result.Commands = append(result.Commands, rightResult)
+
+				// Overall success depends on right side
+				if !rightResult.Success {
+					result.Success = false
+					result.ExitCode = rightResult.ExitCode
+					result.Error = rightResult.Error
+				}
+			} else {
+				// Left side failed, skip right side
+				result.ExitCode = leftResult.ExitCode
+				result.Error = leftResult.Error
+			}
+
+		case *types.OrNode:
+			// Execute left side first
+			leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Left))
+			if err != nil {
+				return nil, err
+			}
+
+			// If left side failed, execute right side
+			if !leftResult.Success {
+				rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Right))
+				if err != nil {
+					return nil, err
+				}
+				result.Commands = append(result.Commands, rightResult)
+
+				// Overall success depends on right side
+				if !rightResult.Success {
+					result.Success = false
+					result.ExitCode = rightResult.ExitCode
+					result.Error = rightResult.Error
+				}
+			} else {
+				// Left side succeeded, skip right side
+				// Success is already true by default
+			}
+
+		case *types.BackgroundNode:
+			// Execute command in background
+			cmdNode := types.CastToCommandNode(n.Command)
+			if cmdNode == nil {
+				return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+					"background command must be a CommandNode").
+					WithContext("command_type", fmt.Sprintf("%T", n.Command))
+			}
+
+			bgResult, err := ee.ExecuteCommand(ctx, cmdNode)
+			if err != nil {
+				return nil, err
+			}
+
+			// For now, execute synchronously but mark as background
+			// In a full implementation, this would run in a goroutine
+			result.Commands = append(result.Commands, bgResult)
+			if !bgResult.Success {
+				result.Success = false
+				result.ExitCode = bgResult.ExitCode
+				result.Error = bgResult.Error
+			}
+
+		case *types.HeredocNode:
+			// Execute heredoc
+			// Write heredoc content to a temporary file, then execute command with it as input
+			heredocFile := "/tmp/shode_heredoc_" + fmt.Sprintf("%d", time.Now().UnixNano()) + ".txt"
+			err := os.WriteFile(heredocFile, []byte(n.Body), 0644)
+			if err != nil {
+				return nil, errors.WrapError(errors.ErrExecutionFailed,
+					"failed to write heredoc file", err).
+					WithContext("file", heredocFile)
+			}
+			defer os.Remove(heredocFile)
+
+			// Execute command with heredoc as input
+			cmdNode := types.CastToCommandNode(n.Command)
+			if cmdNode == nil {
+				return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+					"heredoc command must be a CommandNode").
+					WithContext("command_type", fmt.Sprintf("%T", n.Command))
+			}
+
+			cmdResult, err := ee.ExecuteCommandWithInput(ctx, cmdNode, n.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			result.Commands = append(result.Commands, cmdResult)
+			if !cmdResult.Success {
+				result.Success = false
+				result.ExitCode = cmdResult.ExitCode
+				result.Error = cmdResult.Error
+			} else {
+				result.Output = cmdResult.Output
+			}
+
 		default:
 			return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
 				fmt.Sprintf("unsupported node type: %T", n)).

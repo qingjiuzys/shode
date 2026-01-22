@@ -14,8 +14,8 @@ func main() {
 		Short: "Shode - A secure shell script runtime platform",
 		Long: `Shode is a secure shell script runtime platform that provides
 modern development practices, safety features, and ecosystem tools
-for shell scripting.`,
-		Version: "0.3.0",
+	for shell scripting.`,
+		Version: "0.4.0",
 	}
 
 	// Add subcommands
