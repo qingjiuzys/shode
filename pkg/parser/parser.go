@@ -309,12 +309,17 @@ func (p *Parser) parseIfStatement(node *sitter.Node, source string) *types.IfNod
 			continue
 		}
 
-		if nodeType == "command" || nodeType == "test_command" {
+		if nodeType == "test_command" {
+			if !foundThen {
+				// For test_command, always use parseTestCommand
+				condition = p.parseTestCommand(child, source)
+			}
+			continue
+		}
+
+		if nodeType == "command" {
 			if !foundThen {
 				condition = p.parseCommandNode(child, source)
-				if condition == nil {
-					condition = p.parseTestCommand(child, source)
-				}
 			} else if foundThen && thenScript != nil {
 				// Command in then block
 				cmd := p.parseCommandNode(child, source)
@@ -570,9 +575,64 @@ func (p *Parser) parseElseClause(node *sitter.Node, source string) *types.Script
 	return script
 }
 
-// parseTestCommand parses a test command
+// parseTestCommand parses a test command [ ... ]
+// Test commands have special syntax: [ expression ]
+// The '[' is the command name and the rest are arguments
 func (p *Parser) parseTestCommand(node *sitter.Node, source string) *types.CommandNode {
-	return p.parseCommandNode(node, source)
+	var name string
+	var args []string
+
+	// Debug: Log what we're parsing
+	// fmt.Printf("[DEBUG] parseTestCommand called with %d children\n", node.ChildCount())
+
+	// Process children to find command name and arguments
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child == nil {
+			continue
+		}
+
+		nodeType := child.Type()
+		content := child.Content([]byte(source))
+
+		// Debug: Log each child
+		// fmt.Printf("[DEBUG]   Child %d: type=%s, content=%q\n", i, nodeType, content)
+
+		switch nodeType {
+		case "[":
+			// '[' is the command name
+			name = "["
+		case "]":
+			// Skip closing bracket
+			continue
+		case "word", "string", "number":
+			args = append(args, content)
+		case "binary_expression", "unary_expression", "logical_expression":
+			// For complex expressions, just add the content as a single argument
+			// The shell will evaluate this expression
+			if content != "" {
+				args = append(args, content)
+			}
+		default:
+			// For other node types, try to add content if it's not empty
+			if content != "" && nodeType != ";" && nodeType != "test_operator" {
+				args = append(args, content)
+			}
+		}
+	}
+
+	// Debug: Log result
+	// fmt.Printf("[DEBUG] parseTestCommand result: name=%q, args=%v\n", name, args)
+
+	if name == "" {
+		return nil
+	}
+
+	return &types.CommandNode{
+		Pos:  types.Position{Line: int(node.StartPoint().Row) + 1, Column: int(node.StartPoint().Column) + 1, Offset: int(node.StartByte())},
+		Name: name,
+		Args: args,
+	}
 }
 
 // parseCommandSubstitution parses a command substitution $(...)

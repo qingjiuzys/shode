@@ -524,6 +524,13 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 
 	result.Duration = time.Since(startTime)
 	result.Success = true
+	// Ensure ExitCode is set to 0 on success
+	if result.ExitCode != 0 {
+		// This shouldn't happen if all commands succeeded
+		// But if it does, log it and fix it
+		fmt.Fprintf(os.Stderr, "[WARNING] Execute: Success=true but ExitCode=%d, resetting to 0\n", result.ExitCode)
+		result.ExitCode = 0
+	}
 	return result, nil
 }
 
@@ -549,6 +556,12 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 //	}
 //	result, err := ee.ExecuteCommand(ctx, cmd)
 func (ee *ExecutionEngine) ExecuteCommand(ctx context.Context, cmd *types.CommandNode) (*CommandResult, error) {
+	// Check for nil command
+	if cmd == nil {
+		return nil, errors.NewExecutionError(errors.ErrInvalidInput,
+			"cannot execute nil command")
+	}
+
 	startTime := time.Now()
 
 	// Expand variables in command arguments
@@ -1408,21 +1421,45 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 
 // executeProcess executes a command as an external process
 func (ee *ExecutionEngine) executeProcess(ctx context.Context, cmd *types.CommandNode) (*CommandResult, error) {
+	// Handle special case for [ command (test command)
+	// [ is a shell built-in that's equivalent to test
+	var actualCmd *types.CommandNode = cmd
+	if cmd.Name == "[" {
+		// Convert [ args ] to test args
+		// Remove the trailing ] if present
+		args := cmd.Args
+		if len(args) > 0 && args[len(args)-1] == "]" {
+			args = args[:len(args)-1]
+		}
+		actualCmd = &types.CommandNode{
+			Pos:      cmd.Pos,
+			Name:     "test",
+			Args:     args,
+			Redirect: cmd.Redirect,
+		}
+	}
+
 	// Check cache first (only if no redirects)
-	if cmd.Redirect == nil {
-		if cached, ok := ee.cache.Get(cmd.Name, cmd.Args); ok {
+	if actualCmd.Redirect == nil {
+		if cached, ok := ee.cache.Get(actualCmd.Name, actualCmd.Args); ok {
 			return cached, nil
 		}
 	}
 
 	// Create command with context
-	command := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
+	command := exec.CommandContext(ctx, actualCmd.Name, actualCmd.Args...)
 
 	// Set environment - convert map[string]string to []string
 	envVars := make([]string, 0, len(ee.envManager.GetAllEnv()))
 	for key, value := range ee.envManager.GetAllEnv() {
 		envVars = append(envVars, key+"="+value)
 	}
+
+	// Debug: log environment for problematic commands
+	// if len(envVars) == 0 {
+	//     fmt.Fprintf(os.Stderr, "[DEBUG] No environment variables for command %s\n", actualCmd.Name)
+	// }
+
 	command.Env = envVars
 
 	// Set working directory

@@ -229,16 +229,26 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 	sl.httpMu.Lock()
 	defer sl.httpMu.Unlock()
 
+	// Remove surrounding quotes if present
+	port = strings.Trim(port, "\"")
+
+	// Debug output
+	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer called with port %s (trimmed)\n", port)
+
 	// Parse port
 	portNum, err := strconv.Atoi(port)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: invalid port %s: %v\n", port, err)
 		return fmt.Errorf("invalid port: %s", port)
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: port parsed as %d\n", portNum)
 
 	// Check if server already exists and is running
 	if sl.httpServer != nil && sl.httpServer.isRunning {
+		fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: server already running\n")
 		return fmt.Errorf("HTTP server is already running")
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: no existing server, proceeding...\n")
 
 	// Create new server
 	mux := http.NewServeMux()
@@ -251,19 +261,19 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 		server:    server,
 		mux:       mux,
 		routes:    make(map[string]*routeHandler),
-		isRunning: false,
+		isRunning: true, // Set to true immediately, before starting goroutine
 	}
+
+	// Debug: confirm httpServer was created
+	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: httpServer created, isRunning=%v\n", sl.httpServer.isRunning)
 
 	// Start server in goroutine
 	go func() {
-		sl.httpServer.mu.Lock()
-		sl.httpServer.isRunning = true
-		sl.httpServer.mu.Unlock()
-
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 		}
 
+		// Mark server as not running when it stops
 		sl.httpServer.mu.Lock()
 		sl.httpServer.isRunning = false
 		sl.httpServer.mu.Unlock()
@@ -610,13 +620,18 @@ func (sl *StdLib) IsHTTPServerRunning() bool {
 	defer sl.httpMu.Unlock()
 
 	if sl.httpServer == nil {
+		// Debug output
+		fmt.Fprintf(os.Stderr, "[DEBUG] IsHTTPServerRunning: httpServer is nil\n")
 		return false
 	}
 
 	sl.httpServer.mu.RLock()
 	defer sl.httpServer.mu.RUnlock()
 
-	return sl.httpServer.isRunning
+	running := sl.httpServer.isRunning
+	// Debug output
+	fmt.Fprintf(os.Stderr, "[DEBUG] IsHTTPServerRunning: isRunning=%v\n", running)
+	return running
 }
 
 // createRequestContext creates a request context from an HTTP request
