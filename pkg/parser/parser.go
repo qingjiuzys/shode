@@ -175,6 +175,10 @@ func (p *Parser) walkTree(node *sitter.Node, source string, script *types.Script
 		}
 
 	default:
+		// Skip heredoc-related nodes to avoid processing EOF markers as commands
+		if node.Type() == "heredoc_start" || node.Type() == "heredoc_body" || node.Type() == "heredoc_end" {
+			return
+		}
 		// Recursively process children for other node types
 		for i := 0; i < int(node.ChildCount()); i++ {
 			p.walkTree(node.Child(i), source, script)
@@ -437,6 +441,9 @@ func (p *Parser) parseVariableAssignment(node *sitter.Node, source string) *type
 			value = child.Content([]byte(source))
 		case "simple_expansion":
 			value = child.Content([]byte(source))
+		case "array":
+			// Parse array assignment: name=(value1 value2 ...)
+			return p.parseArrayInAssignment(node, source)
 		}
 	}
 
@@ -448,6 +455,45 @@ func (p *Parser) parseVariableAssignment(node *sitter.Node, source string) *type
 		Pos:   types.Position{Line: int(node.StartPoint().Row) + 1, Column: int(node.StartPoint().Column) + 1, Offset: int(node.StartByte())},
 		Name:  name,
 		Value: value,
+	}
+}
+
+// parseArrayInAssignment parses an array assignment within a variable_assignment node
+func (p *Parser) parseArrayInAssignment(node *sitter.Node, source string) *types.AssignmentNode {
+	var name string
+	var values []string
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "variable_name" {
+			name = child.Content([]byte(source))
+		} else if child.Type() == "array" {
+			// Extract array elements
+			for j := 0; j < int(child.ChildCount()); j++ {
+				arrayChild := child.Child(j)
+				if arrayChild.Type() == "word" || arrayChild.Type() == "string" {
+					content := arrayChild.Content([]byte(source))
+					// Remove quotes if present
+					if strings.HasPrefix(content, "\"") || strings.HasPrefix(content, "'") {
+						content = content[1 : len(content)-1]
+					}
+					values = append(values, content)
+				}
+			}
+		}
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	// For now, return AssignmentNode with array notation
+	// The engine will need to handle this specially
+	arrayNotation := "(" + strings.Join(values, " ") + ")"
+	return &types.AssignmentNode{
+		Pos:   types.Position{Line: int(node.StartPoint().Row) + 1, Column: int(node.StartPoint().Column) + 1, Offset: int(node.StartByte())},
+		Name:  name,
+		Value: arrayNotation,
 	}
 }
 

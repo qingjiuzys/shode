@@ -35,9 +35,9 @@ The script will be parsed, analyzed for security risks, and executed in a sandbo
 
 			fmt.Printf("Running script: %s\n", scriptFile)
 
-			// Parse the script file
-			parser := parser.NewSimpleParser()
-			script, err := parser.ParseFile(scriptFile)
+			// Parse the script file using tree-sitter parser for better heredoc support
+			treeParser := parser.NewParser()
+			script, err := treeParser.ParseFile(scriptFile)
 			if err != nil {
 				return fmt.Errorf("failed to parse script: %v", err)
 			}

@@ -190,6 +190,14 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			}
 			result.Commands = append(result.Commands, cmdResult)
 
+			// Collect command output
+			if cmdResult.Output != "" {
+				result.Output += cmdResult.Output
+				if !strings.HasSuffix(cmdResult.Output, "\n") {
+					result.Output += "\n"
+				}
+			}
+
 			if !cmdResult.Success {
 				result.Success = false
 				result.ExitCode = cmdResult.ExitCode
@@ -203,6 +211,11 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, pipeResult.Results...)
+
+			// Collect pipeline output
+			if pipeResult.Output != "" {
+				result.Output += pipeResult.Output
+			}
 
 			if !pipeResult.Success {
 				result.Success = false
@@ -218,6 +231,11 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			}
 			result.Commands = append(result.Commands, ifResult.Commands...)
 
+			// Collect if statement output
+			if ifResult.Output != "" {
+				result.Output += ifResult.Output
+			}
+
 			if !ifResult.Success {
 				result.Success = false
 				result.ExitCode = ifResult.ExitCode
@@ -231,6 +249,11 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 				return nil, err
 			}
 			result.Commands = append(result.Commands, forResult.Commands...)
+
+			// Collect for loop output
+			if forResult.Output != "" {
+				result.Output += forResult.Output
+			}
 
 			if !forResult.Success {
 				result.Success = false
@@ -246,6 +269,11 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			}
 			result.Commands = append(result.Commands, whileResult.Commands...)
 
+			// Collect while loop output
+			if whileResult.Output != "" {
+				result.Output += whileResult.Output
+			}
+
 			if !whileResult.Success {
 				result.Success = false
 				result.ExitCode = whileResult.ExitCode
@@ -254,54 +282,49 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 
 		case *types.AssignmentNode:
 			// Execute variable assignment
-			// First, expand variables and command substitution in the value
+			// First, expand variables in the value
 			expandedValue := ee.expandVariables(n.Value)
 
-			// If the value looks like a command (not quoted and contains spaces or is a known function),
-			// try to execute it as a command
+			// Check if this is an array assignment: (value1 value2 ...)
 			trimmedValue := strings.TrimSpace(expandedValue)
-			if trimmedValue != "" && !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
-				// Check if it's a command (contains spaces or is a known stdlib function)
-				fields := strings.Fields(trimmedValue)
-				if len(fields) > 0 && (strings.Contains(trimmedValue, " ") || ee.isStdLibFunction(fields[0])) {
-					// Try to parse and execute as a command
+			if strings.HasPrefix(trimmedValue, "(") && strings.HasSuffix(trimmedValue, ")") {
+				// Array assignment
+				arrayContent := trimmedValue[1 : len(trimmedValue)-1] // Remove ( and )
+				// Parse array elements (split by spaces, but respect quotes)
+				values := ee.parseArrayElements(arrayContent)
+
+				// Store array as space-separated string
+				arrayValue := strings.Join(values, " ")
+				ee.envManager.SetEnv(n.Name, arrayValue)
+
+				// Also store individual elements as name[0], name[1], etc.
+				for i, val := range values {
+					key := fmt.Sprintf("%s[%d]", n.Name, i)
+					ee.envManager.SetEnv(key, val)
+				}
+
+				// Store array length
+				lengthKey := fmt.Sprintf("%s[@]", n.Name)
+				ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(values)))
+			} else if !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
+				// Check if it's a command substitution like $(command) or `command`
+				if strings.HasPrefix(trimmedValue, "$(") || strings.HasPrefix(trimmedValue, "`") {
+					// Command substitution - execute and capture output
 					p := shodeparser.NewSimpleParser()
 					script, err := p.ParseString(trimmedValue)
 					if err == nil && len(script.Nodes) > 0 {
-						// Execute the command
 						cmdResult, execErr := ee.Execute(ctx, script)
 						if execErr == nil && cmdResult != nil && cmdResult.Success {
-							// Use command output as the value
-							// Collect output from all commands in the result
-							var output strings.Builder
-							for _, cr := range cmdResult.Commands {
-								if cr.Output != "" {
-									output.WriteString(cr.Output)
-									if !strings.HasSuffix(cr.Output, "\n") {
-										output.WriteString("\n")
-									}
-								}
-							}
-							// Also check the result's Output field
-							if cmdResult.Output != "" {
-								output.WriteString(cmdResult.Output)
-							}
-							expandedValue = strings.TrimSpace(output.String())
-							fmt.Printf("[DEBUG] AssignmentNode: executed command '%s', got output: '%s' (from %d commands, result.Output='%s')\n", trimmedValue, expandedValue, len(cmdResult.Commands), cmdResult.Output)
-							if len(cmdResult.Commands) > 0 {
-								fmt.Printf("[DEBUG] AssignmentNode: first command output: '%s'\n", cmdResult.Commands[0].Output)
-							}
-						} else {
-							fmt.Printf("[DEBUG] AssignmentNode: command execution failed: %v, result: %v\n", execErr, cmdResult)
+							expandedValue = strings.TrimSpace(cmdResult.Output)
 						}
-					} else {
-						fmt.Printf("[DEBUG] AssignmentNode: failed to parse command '%s': %v\n", trimmedValue, err)
 					}
 				}
+				// Simple assignment
+				ee.envManager.SetEnv(n.Name, expandedValue)
+			} else {
+				// Quoted string assignment - remove quotes
+				ee.envManager.SetEnv(n.Name, expandedValue)
 			}
-
-			fmt.Printf("[DEBUG] AssignmentNode: setting %s = '%s'\n", n.Name, expandedValue)
-			ee.envManager.SetEnv(n.Name, expandedValue)
 
 		case *types.AnnotationNode:
 			// Process annotation (register with annotation processor)
@@ -330,6 +353,15 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			if err != nil {
 				return nil, err
 			}
+			result.Commands = append(result.Commands, leftResult)
+
+			// Collect left output
+			if leftResult.Output != "" {
+				result.Output += leftResult.Output
+				if !strings.HasSuffix(leftResult.Output, "\n") {
+					result.Output += "\n"
+				}
+			}
 
 			// If left side succeeded, execute right side
 			if leftResult.Success {
@@ -338,6 +370,14 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 					return nil, err
 				}
 				result.Commands = append(result.Commands, rightResult)
+
+				// Collect right output
+				if rightResult.Output != "" {
+					result.Output += rightResult.Output
+					if !strings.HasSuffix(rightResult.Output, "\n") {
+						result.Output += "\n"
+					}
+				}
 
 				// Overall success depends on right side
 				if !rightResult.Success {
@@ -357,6 +397,15 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			if err != nil {
 				return nil, err
 			}
+			result.Commands = append(result.Commands, leftResult)
+
+			// Collect left output
+			if leftResult.Output != "" {
+				result.Output += leftResult.Output
+				if !strings.HasSuffix(leftResult.Output, "\n") {
+					result.Output += "\n"
+				}
+			}
 
 			// If left side failed, execute right side
 			if !leftResult.Success {
@@ -365,6 +414,14 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 					return nil, err
 				}
 				result.Commands = append(result.Commands, rightResult)
+
+				// Collect right output
+				if rightResult.Output != "" {
+					result.Output += rightResult.Output
+					if !strings.HasSuffix(rightResult.Output, "\n") {
+						result.Output += "\n"
+					}
+				}
 
 				// Overall success depends on right side
 				if !rightResult.Success {
@@ -394,6 +451,15 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			// For now, execute synchronously but mark as background
 			// In a full implementation, this would run in a goroutine
 			result.Commands = append(result.Commands, bgResult)
+
+			// Collect background command output
+			if bgResult.Output != "" {
+				result.Output += bgResult.Output
+				if !strings.HasSuffix(bgResult.Output, "\n") {
+					result.Output += "\n"
+				}
+			}
+
 			if !bgResult.Success {
 				result.Success = false
 				result.ExitCode = bgResult.ExitCode
@@ -402,17 +468,13 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 
 		case *types.HeredocNode:
 			// Execute heredoc
-			// Write heredoc content to a temporary file, then execute command with it as input
-			heredocFile := "/tmp/shode_heredoc_" + fmt.Sprintf("%d", time.Now().UnixNano()) + ".txt"
-			err := os.WriteFile(heredocFile, []byte(n.Body), 0644)
-			if err != nil {
-				return nil, errors.WrapError(errors.ErrExecutionFailed,
-					"failed to write heredoc file", err).
-					WithContext("file", heredocFile)
-			}
-			defer os.Remove(heredocFile)
+			// The heredoc body from tree-sitter should NOT contain the end marker
+			heredocBody := n.Body
 
-			// Execute command with heredoc as input
+			// Remove trailing newlines
+			heredocBody = strings.TrimRight(heredocBody, "\n")
+
+			// Execute command with heredoc body as input
 			cmdNode := types.CastToCommandNode(n.Command)
 			if cmdNode == nil {
 				return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
@@ -420,7 +482,8 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 					WithContext("command_type", fmt.Sprintf("%T", n.Command))
 			}
 
-			cmdResult, err := ee.ExecuteCommandWithInput(ctx, cmdNode, n.Body)
+
+			cmdResult, err := ee.ExecuteCommandWithInput(ctx, cmdNode, heredocBody+"\n")
 			if err != nil {
 				return nil, err
 			}
@@ -433,6 +496,24 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			} else {
 				result.Output = cmdResult.Output
 			}
+
+		case *types.ArrayNode:
+			// Execute array assignment
+			// Store array as a space-separated string in environment
+			// In bash, arrays are accessed as ${array[@]} or ${array[0]}
+			// For now, we'll store the full array as a special variable
+			arrayValue := strings.Join(n.Values, " ")
+			ee.envManager.SetEnv(n.Name, arrayValue)
+
+			// Also store individual elements as array_name[0], array_name[1], etc.
+			for i, val := range n.Values {
+				key := fmt.Sprintf("%s[%d]", n.Name, i)
+				ee.envManager.SetEnv(key, val)
+			}
+
+			// Store array length
+			lengthKey := fmt.Sprintf("%s[@]", n.Name)
+			ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(n.Values)))
 
 		default:
 			return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
@@ -1837,4 +1918,59 @@ func (ee *ExecutionEngine) executeSourceFile(ctx context.Context, filePath strin
 		ExitCode: 0,
 		Commands: []*CommandResult{},
 	}, nil
+}
+
+// parseArrayElements parses array elements from a space-separated string
+// Handles quoted strings: "hello world" foo 'bar baz'
+func (ee *ExecutionEngine) parseArrayElements(input string) []string {
+	var result []string
+	var current strings.Builder
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for i, r := range input {
+		switch r {
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+			} else {
+				current.WriteRune(r)
+			}
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+			} else {
+				current.WriteRune(r)
+			}
+		case ' ', '\t':
+			if !inSingleQuote && !inDoubleQuote {
+				if current.Len() > 0 {
+					result = append(result, current.String())
+					current.Reset()
+				}
+			} else {
+				current.WriteRune(r)
+			}
+		default:
+			current.WriteRune(r)
+		}
+
+		// Handle escaped characters
+		if i > 0 && input[i-1] == '\\' && (r == '\'' || r == '"' || r == '\\') {
+			// Remove the backslash from the current builder
+			str := current.String()
+			if len(str) >= 2 {
+				current.Reset()
+				current.WriteString(str[:len(str)-2])
+				current.WriteRune(r)
+			}
+		}
+	}
+
+	// Add the last element
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
 }
