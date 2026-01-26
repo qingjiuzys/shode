@@ -335,3 +335,27 @@ func (mm *ModuleManager) GetModuleInfo(path string) (*ModuleInfo, error) {
 
 	return info, nil
 }
+
+// IsExportedFunction checks if a function name is exported by any loaded module
+// This is used by the execution engine to determine if a command should be
+// executed in interpreted mode (for module exports) or process mode
+func (mm *ModuleManager) IsExportedFunction(funcName string) bool {
+	// Check all loaded modules for this export
+	for _, module := range mm.modules {
+		if !module.IsLoaded {
+			continue
+		}
+
+		// Try exact match
+		if _, exists := module.Exports[funcName]; exists {
+			return true
+		}
+
+		// Try with parentheses for function-style exports
+		if _, exists := module.Exports[funcName+"()"]; exists {
+			return true
+		}
+	}
+
+	return false
+}

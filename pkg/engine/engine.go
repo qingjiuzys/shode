@@ -803,10 +803,10 @@ func (ee *ExecutionEngine) decideExecutionMode(cmd *types.CommandNode) Execution
 		return ModeInterpreted
 	}
 
-	// Check if it's a module export (TODO: implement module export check)
-	// if ee.moduleMgr.IsExportedFunction(cmd.Name) {
-	//     return ModeInterpreted
-	// }
+	// Check if it's a module export
+	if ee.moduleMgr.IsExportedFunction(cmd.Name) {
+		return ModeInterpreted
+	}
 
 	// Check if external command exists
 	if ee.isExternalCommandAvailable(cmd.Name) {
@@ -1559,10 +1559,25 @@ func (ee *ExecutionEngine) setupRedirect(cmd *exec.Cmd, redirect *types.Redirect
 	return nil
 }
 
-// executeHybrid executes a command using hybrid approach (future enhancement)
+// executeHybrid executes a command using hybrid approach
+//
+// The hybrid execution mode attempts to intelligently choose the best execution method:
+// 1. First tries interpreted execution (fast, for built-ins and user functions)
+// 2. Falls back to process execution if interpreted fails or is unavailable
+//
+// This provides the best of both worlds - fast execution for known functions
+// with graceful fallback to external process execution when needed.
 func (ee *ExecutionEngine) executeHybrid(ctx context.Context, cmd *types.CommandNode) (*CommandResult, error) {
-	// For now, default to process execution
-	// TODO: Implement smart hybrid execution logic
+	// Try interpreted execution first
+	if ee.isStdLibFunction(cmd.Name) || ee.isUserDefinedFunction(cmd.Name) || ee.moduleMgr.IsExportedFunction(cmd.Name) {
+		result, err := ee.executeInterpreted(ctx, cmd)
+		if err == nil && result.Success {
+			return result, nil
+		}
+		// If interpreted execution failed, fall through to process execution
+	}
+
+	// Fall back to process execution
 	return ee.executeProcess(ctx, cmd)
 }
 
