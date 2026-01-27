@@ -262,9 +262,16 @@ func (p *Parser) parseCommandNode(node *sitter.Node, source string) *types.Comma
 				}
 			}
 		case "word":
-			args = append(args, child.Content([]byte(source)))
+			content := child.Content([]byte(source))
+			args = append(args, strings.Trim(content, `"'`))
 		case "string":
-			args = append(args, child.Content([]byte(source)))
+			content := child.Content([]byte(source))
+			// Remove surrounding quotes from strings
+			args = append(args, strings.Trim(content, `"'`))
+		case "number":
+			content := child.Content([]byte(source))
+			// Numbers don't have quotes
+			args = append(args, content)
 		}
 	}
 

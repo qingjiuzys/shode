@@ -1782,6 +1782,15 @@ func (ee *ExecutionEngine) isUserDefinedFunction(funcName string) bool {
 	return exists
 }
 
+// getFunctionNames returns a sorted list of user-defined function names
+func (ee *ExecutionEngine) getFunctionNames() []string {
+	names := make([]string, 0, len(ee.functions))
+	for name := range ee.functions {
+		names = append(names, name)
+	}
+	return names
+}
+
 // executeUserFunction executes a user-defined function
 func (ee *ExecutionEngine) executeUserFunction(ctx context.Context, fn *types.FunctionNode, args []string) (*CommandResult, error) {
 	startTime := time.Now()

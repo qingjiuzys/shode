@@ -1,13 +1,4 @@
 {
-  "name": "my-shode-project",
-  "version": "1.0.0",
-  "dependencies": {
-    "lodash": "latest"
-  },
-  "devDependencies": {
-    "jest": "latest"
-  },
-  "scripts": {
-    "test": "echo 'Running tests...'"
-  }
+  "name": "test-pkg",
+  "version": "1.0.0"
 }
