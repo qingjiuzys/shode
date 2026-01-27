@@ -896,6 +896,12 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"GetConfigBool":     true,
 		"SetConfig":         true,
 		"Source":            true,
+		// Template functions
+		"RenderTemplateFile":              true,
+		"RenderTemplateString":            true,
+		"SaveTemplateFile":                true,
+		"SetHTTPResponseTemplate":         true,
+		"SetHTTPResponseTemplateString":   true,
 	}
 	return stdlibFunctions[funcName]
 }
@@ -1201,6 +1207,105 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 			return "", err
 		}
 		return fmt.Sprintf("Request logging enabled (level: %s)", level), nil
+	case "RenderTemplateFile":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RenderTemplateFile requires template path argument").
+				WithContext("function", "RenderTemplateFile")
+		}
+		// Parse data from remaining args (key=value pairs)
+		data := make(map[string]interface{})
+		for i := 1; i < len(args); i++ {
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) == 2 {
+				data[parts[0]] = parts[1]
+			}
+		}
+		result, err := ee.stdlib.RenderTemplateFile(args[0], data)
+		if err != nil {
+			return "", err
+		}
+		return result, nil
+	case "RenderTemplateString":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RenderTemplateString requires template content argument").
+				WithContext("function", "RenderTemplateString")
+		}
+		// Parse data from remaining args (key=value pairs)
+		data := make(map[string]interface{})
+		for i := 1; i < len(args); i++ {
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) == 2 {
+				data[parts[0]] = parts[1]
+			}
+		}
+		result, err := ee.stdlib.RenderTemplateString(args[0], data)
+		if err != nil {
+			return "", err
+		}
+		return result, nil
+	case "SaveTemplateFile":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SaveTemplateFile requires path and content arguments").
+				WithContext("function", "SaveTemplateFile")
+		}
+		err := ee.stdlib.SaveTemplateFile(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Template saved to %s", args[0]), nil
+	case "SetHTTPResponseTemplate":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetHTTPResponseTemplate requires status and template path arguments").
+				WithContext("function", "SetHTTPResponseTemplate")
+		}
+		status, err := strconv.Atoi(args[0])
+		if err != nil {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				fmt.Sprintf("invalid status code: %s", args[0])).
+				WithContext("function", "SetHTTPResponseTemplate")
+		}
+		// Parse data from remaining args (key=value pairs)
+		data := make(map[string]interface{})
+		for i := 2; i < len(args); i++ {
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) == 2 {
+				data[parts[0]] = parts[1]
+			}
+		}
+		err = ee.stdlib.SetHTTPResponseTemplate(status, args[1], data)
+		if err != nil {
+			return "", err
+		}
+		return "Response set from template", nil
+	case "SetHTTPResponseTemplateString":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetHTTPResponseTemplateString requires status and template content arguments").
+				WithContext("function", "SetHTTPResponseTemplateString")
+		}
+		status, err := strconv.Atoi(args[0])
+		if err != nil {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				fmt.Sprintf("invalid status code: %s", args[0])).
+				WithContext("function", "SetHTTPResponseTemplateString")
+		}
+		// Parse data from remaining args (key=value pairs)
+		data := make(map[string]interface{})
+		for i := 2; i < len(args); i++ {
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) == 2 {
+				data[parts[0]] = parts[1]
+			}
+		}
+		err = ee.stdlib.SetHTTPResponseTemplateString(status, args[1], data)
+		if err != nil {
+			return "", err
+		}
+		return "Response set from template string", nil
 	case "SetCache":
 		if len(args) < 2 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,
