@@ -859,6 +859,15 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"RegisterStaticRouteAdvanced": true,
 		"RegisterHTTPRouteAdvanced":   true,
 		"EnableRequestLog":            true,
+		"RegisterWebSocketRoute":      true,
+		"BroadcastWebSocketMessage":   true,
+		"BroadcastWebSocketMessageToRoom": true,
+		"SendWebSocketMessage":        true,
+		"JoinRoom":                   true,
+		"LeaveRoom":                  true,
+		"GetWebSocketConnectionCount": true,
+		"GetWebSocketRoomCount":       true,
+		"ListWebSocketRooms":         true,
 		"StopHTTPServer":              true,
 		"IsHTTPServerRunning":       true,
 		"GetHTTPMethod":             true,
@@ -1148,6 +1157,93 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 			return "", err
 		}
 		return fmt.Sprintf("Route registered: %s", args[0]), nil
+	case "RegisterWebSocketRoute":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterWebSocketRoute requires path argument").
+				WithContext("function", "RegisterWebSocketRoute")
+		}
+		handlerFunc := ""
+		if len(args) >= 2 {
+			handlerFunc = args[1]
+		}
+		err := ee.stdlib.RegisterWebSocketRoute(args[0], handlerFunc)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("WebSocket route registered: %s", args[0]), nil
+	case "BroadcastWebSocketMessage":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"BroadcastWebSocketMessage requires message argument").
+				WithContext("function", "BroadcastWebSocketMessage")
+		}
+		err := ee.stdlib.BroadcastWebSocketMessage(args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Broadcasted: %s", args[0]), nil
+	case "BroadcastWebSocketMessageToRoom":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"BroadcastWebSocketMessageToRoom requires room and message arguments").
+				WithContext("function", "BroadcastWebSocketMessageToRoom")
+		}
+		err := ee.stdlib.BroadcastWebSocketMessageToRoom(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Broadcasted to room %s: %s", args[0], args[1]), nil
+	case "SendWebSocketMessage":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SendWebSocketMessage requires connection ID and message arguments").
+				WithContext("function", "SendWebSocketMessage")
+		}
+		err := ee.stdlib.SendWebSocketMessage(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Sent to %s: %s", args[0], args[1]), nil
+	case "JoinRoom":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"JoinRoom requires connection ID and room name arguments").
+				WithContext("function", "JoinRoom")
+		}
+		err := ee.stdlib.JoinRoom(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Joined room %s", args[1]), nil
+	case "LeaveRoom":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"LeaveRoom requires connection ID argument").
+				WithContext("function", "LeaveRoom")
+		}
+		err := ee.stdlib.LeaveRoom(args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Left room"), nil
+	case "GetWebSocketConnectionCount":
+		count := ee.stdlib.GetWebSocketConnectionCount()
+		return fmt.Sprintf("%d", count), nil
+	case "GetWebSocketRoomCount":
+		if len(args) < 1 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"GetWebSocketRoomCount requires room name argument").
+				WithContext("function", "GetWebSocketRoomCount")
+		}
+		count := ee.stdlib.GetWebSocketRoomCount(args[0])
+		return fmt.Sprintf("%d", count), nil
+	case "ListWebSocketRooms":
+		rooms := ee.stdlib.ListWebSocketRooms()
+		if len(rooms) == 0 {
+			return "No active rooms", nil
+		}
+		return fmt.Sprintf("Active rooms: %s", strings.Join(rooms, ", ")), nil
 	case "StopHTTPServer":
 		err := ee.stdlib.StopHTTPServer()
 		if err != nil {

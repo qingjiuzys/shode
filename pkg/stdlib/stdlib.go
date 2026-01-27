@@ -71,6 +71,8 @@ type StdLib struct {
 	networkManager *NetworkManager
 	// Archive manager
 	archiveManager *ArchiveManager
+	// WebSocket manager
+	wsManager *WebSocketManager
 }
 
 // FilesManager handles file operations
