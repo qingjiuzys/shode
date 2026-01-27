@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -244,7 +244,7 @@ func (sl *StdLib) validateStaticDirectory(directory string) (string, error) {
 	return directory, nil
 }
 
-// serveFile serves a single file with proper headers and optional gzip compression
+// serveFile serves a single file with proper headers, streaming gzip, and cache support
 func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath string, config *StaticFileConfig) error {
 	// Check if file exists
 	info, err := os.Stat(filePath)
@@ -260,30 +260,105 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 		return fmt.Errorf("is directory")
 	}
 
-	// Read file content
-	content, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read file: %v", err)
+	fileSize := info.Size()
+	modTime := info.ModTime()
+
+	// Generate ETag based on file metadata (strong ETag)
+	// Format: "mtime-size" in hex for uniqueness and cache validation
+	etag := fmt.Sprintf("%x-%x", modTime.Unix(), fileSize)
+
+	// Set Last-Modified header (RFC 1123 format)
+	w.Header().Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
+	w.Header().Set("ETag", etag)
+
+	// Check conditional requests - If-None-Match (ETag)
+	ifNoneMatch := r.Header.Get("If-None-Match")
+	if ifNoneMatch != "" && ifNoneMatch == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return nil
 	}
 
-	fileSize := int64(len(content))
-	var start, end int64
+	// Check conditional requests - If-Modified-Since
+	ifModifiedSince := r.Header.Get("If-Modified-Since")
+	if ifModifiedSince != "" {
+		ifModTime, err := http.ParseTime(ifModifiedSince)
+		if err == nil && !modTime.After(ifModTime) {
+			w.WriteHeader(http.StatusNotModified)
+			return nil
+		}
+	}
+
+	// Parse Range header (supports both single and multiple ranges)
+	type byteRange struct {
+		start int64
+		end   int64
+	}
+
+	var ranges []byteRange
 	var sendPartial bool
 
-	// Check for Range header
 	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		// Parse Range header (format: "bytes=start-end")
-		if strings.HasPrefix(rangeHeader, "bytes=") {
-			rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+	if rangeHeader != "" && strings.HasPrefix(rangeHeader, "bytes=") {
+		rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+
+		// Check if this is a multi-range request (contains comma)
+		if strings.Contains(rangeSpec, ",") {
+			// Multi-range request
+			rangeParts := strings.Split(rangeSpec, ",")
+			for _, part := range rangeParts {
+				part = strings.TrimSpace(part)
+				partRanges := strings.Split(part, "-")
+
+				if len(partRanges) != 2 {
+					// Invalid range format
+					w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+					http.Error(w, "Invalid Range Format", http.StatusRequestedRangeNotSatisfiable)
+					return nil
+				}
+
+				var rStart, rEnd int64
+				var err error
+
+				// Parse start position
+				if partRanges[0] != "" {
+					rStart, err = strconv.ParseInt(partRanges[0], 10, 64)
+					if err != nil || rStart < 0 || rStart >= fileSize {
+						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+						return nil
+					}
+				}
+
+				// Parse end position
+				if partRanges[1] != "" {
+					rEnd, err = strconv.ParseInt(partRanges[1], 10, 64)
+					if err != nil || rEnd < rStart || rEnd >= fileSize {
+						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+						return nil
+					}
+				} else {
+					// No end specified, use end of file
+					rEnd = fileSize - 1
+				}
+
+				ranges = append(ranges, byteRange{start: rStart, end: rEnd})
+			}
+
+			if len(ranges) > 0 {
+				sendPartial = true
+			}
+		} else {
+			// Single range request (original logic)
 			parts := strings.Split(rangeSpec, "-")
 
 			if len(parts) == 2 {
+				var start, end int64
+
 				// Parse start position
 				if parts[0] != "" {
 					start, err = strconv.ParseInt(parts[0], 10, 64)
 					if err != nil || start < 0 || start >= fileSize {
-						// Invalid range
 						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
 						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
 						return nil
@@ -294,29 +369,19 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 				if parts[1] != "" {
 					end, err = strconv.ParseInt(parts[1], 10, 64)
 					if err != nil || end < start || end >= fileSize {
-						// Invalid range
 						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
 						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
 						return nil
 					}
 				} else {
-					// No end specified, use end of file
 					end = fileSize - 1
 				}
 
+				ranges = append(ranges, byteRange{start: start, end: end})
 				sendPartial = true
 			}
 		}
 	}
-
-	// If no valid range, send entire file
-	if !sendPartial {
-		start = 0
-		end = fileSize - 1
-	}
-
-	// Calculate content length
-	contentLength := end - start + 1
 
 	// Check if gzip compression is enabled and client supports it
 	// Note: Don't use gzip with Range requests
@@ -329,57 +394,110 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 
 	// Set content type
 	contentType := sl.getContentType(filePath)
-	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Set status code and headers based on whether this is a range request
-	if sendPartial {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	// Open file for streaming
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	// Handle different response types
+	if !sendPartial {
+		// No range request - send entire file
+		w.Header().Set("Content-Type", contentType)
+
+		if !shouldGzip {
+			// Only set Content-Length if not using gzip
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+		}
+
+		// Apply gzip compression with streaming if enabled
+		if shouldGzip {
+			// Set gzip headers
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Vary", "Accept-Encoding")
+
+			// Create streaming gzip writer
+			gzipWriter := gzip.NewWriter(w)
+			defer gzipWriter.Close()
+
+			// Stream and compress in chunks
+			_, err := io.Copy(gzipWriter, file)
+			if err != nil {
+				return fmt.Errorf("failed to write compressed content: %v", err)
+			}
+
+			// Flush gzip writer
+			if err := gzipWriter.Close(); err != nil {
+				return fmt.Errorf("failed to close gzip writer: %v", err)
+			}
+		} else {
+			// Stream file directly without compression
+			if _, err := io.Copy(w, file); err != nil {
+				return fmt.Errorf("failed to write content: %v", err)
+			}
+		}
+	} else if len(ranges) == 1 {
+		// Single range request
+		r := ranges[0]
+		contentLength := r.end - r.start + 1
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", r.start, r.end, fileSize))
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
 		w.WriteHeader(http.StatusPartialContent)
-	} else {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
-	}
 
-	// Extract the requested range
-	contentToSend := content[start:end+1]
-
-	// Apply gzip compression if enabled and not a range request
-	if shouldGzip {
-		// Compress content
-		var buf bytes.Buffer
-		gzipWriter := gzip.NewWriter(&buf)
-		if _, err := gzipWriter.Write(contentToSend); err != nil {
-			gzipWriter.Close()
-			return fmt.Errorf("failed to compress content: %v", err)
-		}
-		gzipWriter.Close()
-
-		// Set gzip header and write compressed content
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Set("Vary", "Accept-Encoding")
-
-		// Calculate original size for uncompressed length
-		originalSize := len(contentToSend)
-		w.Header().Set("X-Uncompressed-Size", fmt.Sprintf("%d", originalSize))
-
-		if _, err := w.Write(buf.Bytes()); err != nil {
-			return fmt.Errorf("failed to write compressed content: %v", err)
-		}
-	} else {
-		// Write uncompressed content
-		if _, err := w.Write(contentToSend); err != nil {
+		// Seek to start position and send the range
+		file.Seek(r.start, 0)
+		limitedReader := io.LimitReader(file, contentLength)
+		if _, err := io.Copy(w, limitedReader); err != nil {
 			return fmt.Errorf("failed to write content: %v", err)
 		}
+	} else {
+		// Multi-range request - send multipart/byteranges response
+		boundary := fmt.Sprintf("%x", time.Now().UnixNano())
+
+		w.Header().Set("Content-Type", fmt.Sprintf("multipart/byteranges; boundary=%s", boundary))
+		w.WriteHeader(http.StatusPartialContent)
+
+		for _, r := range ranges {
+			// Write boundary
+			fmt.Fprintf(w, "--%s\r\n", boundary)
+			fmt.Fprintf(w, "Content-Type: %s\r\n", contentType)
+			fmt.Fprintf(w, "Content-Range: bytes %d-%d/%d\r\n", r.start, r.end, fileSize)
+			fmt.Fprintf(w, "\r\n")
+
+			// Seek to start position and write the range
+			file.Seek(r.start, 0)
+			contentLength := r.end - r.start + 1
+			limitedReader := io.LimitReader(file, contentLength)
+			if _, err := io.Copy(w, limitedReader); err != nil {
+				return fmt.Errorf("failed to write content: %v", err)
+			}
+
+			// Write CRLF after each part
+			fmt.Fprintf(w, "\r\n")
+		}
+
+		// Write final boundary
+		fmt.Fprintf(w, "--%s--\r\n", boundary)
 	}
 
 	return nil
 }
 
+// multipartWriter helps with writing multipart responses
+type multipartWriter struct {
+	w        http.ResponseWriter
+	boundary string
+}
+
 // serveDirectoryListing generates a directory browsing page
 func (sl *StdLib) serveDirectoryListing(w http.ResponseWriter, r *http.Request, dirPath, requestPath string) error {
 	// Read directory entries
-	entries, err := ioutil.ReadDir(dirPath)
+	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %v", err)
 	}
@@ -412,8 +530,14 @@ func (sl *StdLib) serveDirectoryListing(w http.ResponseWriter, r *http.Request, 
 	// Directory entries
 	for _, entry := range entries {
 		name := entry.Name()
-		size := entry.Size()
 		isDir := entry.IsDir()
+
+		// Get size from FileInfo
+		info, err := entry.Info()
+		if err != nil {
+			continue // Skip entries we can't get info for
+		}
+		size := info.Size()
 
 		// Skip hidden files
 		if strings.HasPrefix(name, ".") {
@@ -543,7 +667,7 @@ func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config
 
 // ReadFile reads the contents of a file (replaces 'cat')
 func (sl *StdLib) ReadFile(filename string) (string, error) {
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %v", filename, err)
 	}
@@ -552,12 +676,12 @@ func (sl *StdLib) ReadFile(filename string) (string, error) {
 
 // WriteFile writes content to a file (replaces echo > file)
 func (sl *StdLib) WriteFile(filename, content string) error {
-	return ioutil.WriteFile(filename, []byte(content), 0644)
+	return os.WriteFile(filename, []byte(content), 0644)
 }
 
 // ListFiles lists files in a directory (replaces 'ls')
 func (sl *StdLib) ListFiles(dirpath string) ([]string, error) {
-	files, err := ioutil.ReadDir(dirpath)
+	files, err := os.ReadDir(dirpath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory %s: %v", dirpath, err)
 	}
@@ -1593,8 +1717,8 @@ func (sl *StdLib) IsHTTPServerRunning() bool {
 // createRequestContext creates a request context from an HTTP request
 func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 	// Read body
-	bodyBytes, _ := ioutil.ReadAll(r.Body)
-	r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes)) // Restore body for potential re-read
+	bodyBytes, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Restore body for potential re-read
 
 	// Parse query parameters
 	queryParams := make(map[string]string)

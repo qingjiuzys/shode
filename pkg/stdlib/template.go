@@ -3,8 +3,8 @@ package stdlib
 import (
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -192,7 +192,7 @@ func (t *SimpleTemplate) processEach(content string, data map[string]interface{}
 // RenderTemplateFile renders a template file with given data
 func (sl *StdLib) RenderTemplateFile(templatePath string, data map[string]interface{}) (string, error) {
 	// Read template file
-	content, err := ioutil.ReadFile(templatePath)
+	content, err := os.ReadFile(templatePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template file: %v", err)
 	}
@@ -220,7 +220,7 @@ func (sl *StdLib) RenderTemplateString(templateContent string, data map[string]i
 
 // SaveTemplateFile saves a template to a file
 func (sl *StdLib) SaveTemplateFile(path, content string) error {
-	return ioutil.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // SetHTTPResponseTemplate renders a template file and sets it as HTTP response
@@ -265,7 +265,7 @@ func (sl *StdLib) renderErrorPage(w http.ResponseWriter, r *http.Request, status
 	if sl.httpServer != nil {
 		if errorPagePath, exists := sl.httpServer.errorPages[statusCode]; exists {
 			// Read custom error page
-			content, err := ioutil.ReadFile(errorPagePath)
+			content, err := os.ReadFile(errorPagePath)
 			if err == nil {
 				// Try to render as template
 				data := map[string]interface{}{
