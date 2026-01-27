@@ -115,6 +115,7 @@ type httpServer struct {
 	middlewares []web.Middleware // Global middlewares
 	enableRequestLog bool // Enable request logging
 	requestLogLevel string // Log level: "debug", "info", "error"
+	errorPages map[int]string // Custom error pages (status code -> file path)
 	mu          sync.RWMutex
 }
 
@@ -496,8 +497,8 @@ func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config
 					return
 				}
 			}
-			// File not found
-			http.NotFound(w, r)
+			// File not found - render error page
+			sl.renderErrorPage(w, r, http.StatusNotFound)
 			return
 		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -751,6 +752,7 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 		routes:          make(map[string]*routeHandler),
 		staticRoutes:    make(map[string]*StaticFileConfig),
 		registeredPaths: make(map[string]bool),
+		errorPages:      make(map[int]string),
 		isRunning:       true, // Set to true immediately, before starting goroutine
 	}
 

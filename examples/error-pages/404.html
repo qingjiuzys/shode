@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            font-size: 100px;
+            margin: 0;
+        }
+        h2 {
+            font-size: 32px;
+            margin: 10px 0;
+        }
+        p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        .info {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>404</h1>
+        <h2>Page Not Found</h2>
+        <p>The page you're looking for doesn't exist.</p>
+        <div class="info">
+            <p><strong>Requested:</strong> {{Path}}</p>
+            <p><strong>Method:</strong> {{Method}}</p>
+        </div>
+    </div>
+</body>
+</html>

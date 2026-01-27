@@ -902,6 +902,8 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"SaveTemplateFile":                true,
 		"SetHTTPResponseTemplate":         true,
 		"SetHTTPResponseTemplateString":   true,
+		// Error page functions
+		"SetErrorPage":                    true,
 	}
 	return stdlibFunctions[funcName]
 }
@@ -1306,6 +1308,23 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 			return "", err
 		}
 		return "Response set from template string", nil
+	case "SetErrorPage":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"SetErrorPage requires status code and file path arguments").
+				WithContext("function", "SetErrorPage")
+		}
+		statusCode, err := strconv.Atoi(args[0])
+		if err != nil {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				fmt.Sprintf("invalid status code: %s", args[0])).
+				WithContext("function", "SetErrorPage")
+		}
+		err = ee.stdlib.SetErrorPage(statusCode, args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Error page set for status %d: %s", statusCode, args[1]), nil
 	case "SetCache":
 		if len(args) < 2 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,

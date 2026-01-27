@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -240,4 +241,137 @@ func (sl *StdLib) SetHTTPResponseTemplateString(status int, templateContent stri
 	}
 	sl.SetHTTPResponse(status, result)
 	return nil
+}
+
+// SetErrorPage sets a custom error page for a specific HTTP status code
+func (sl *StdLib) SetErrorPage(statusCode int, filePath string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	sl.httpServer.errorPages[statusCode] = filePath
+	return nil
+}
+
+// renderErrorPage renders a custom error page or default error page
+func (sl *StdLib) renderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	// Check if custom error page is configured
+	if sl.httpServer != nil {
+		if errorPagePath, exists := sl.httpServer.errorPages[statusCode]; exists {
+			// Read custom error page
+			content, err := ioutil.ReadFile(errorPagePath)
+			if err == nil {
+				// Try to render as template
+				data := map[string]interface{}{
+					"StatusCode": statusCode,
+					"StatusText": http.StatusText(statusCode),
+					"Path":       r.URL.Path,
+					"Method":      r.Method,
+				}
+
+				tmpl := NewSimpleTemplate(string(content))
+				rendered, err := tmpl.Render(data)
+				if err == nil {
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.WriteHeader(statusCode)
+					w.Write([]byte(rendered))
+					return nil
+				}
+
+				// If template rendering fails, serve as static file
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(statusCode)
+				w.Write(content)
+				return nil
+			}
+		}
+	}
+
+	// Use default error page
+	sl.renderDefaultErrorPage(w, r, statusCode)
+	return nil
+}
+
+// renderDefaultErrorPage renders the default error page
+func (sl *StdLib) renderDefaultErrorPage(w http.ResponseWriter, r *http.Request, statusCode int) {
+	statusText := http.StatusText(statusCode)
+
+	defaultErrorTemplate := `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{StatusCode}} - {{StatusText}}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .error-container {
+            text-align: center;
+            padding: 40px;
+        }
+        .error-code {
+            font-size: 120px;
+            font-weight: bold;
+            margin: 0;
+            line-height: 1;
+        }
+        .error-text {
+            font-size: 24px;
+            margin: 20px 0 10px 0;
+            opacity: 0.9;
+        }
+        .error-path {
+            font-size: 16px;
+            opacity: 0.7;
+            margin: 10px 0;
+        }
+        .error-info {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1 class="error-code">{{StatusCode}}</h1>
+        <h2 class="error-text">{{StatusText}}</h2>
+        <p class="error-path">Path: {{Path}}</p>
+        <div class="error-info">
+            <p><strong>Server:</strong> Shode v0.5.0</p>
+        </div>
+    </div>
+</body>
+</html>`
+
+	data := map[string]interface{}{
+		"StatusCode": statusCode,
+		"StatusText": statusText,
+		"Path":       r.URL.Path,
+		"Method":      r.Method,
+	}
+
+	tmpl := NewSimpleTemplate(defaultErrorTemplate)
+	rendered, _ := tmpl.Render(data)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(statusCode)
+	w.Write([]byte(rendered))
 }
