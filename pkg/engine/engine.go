@@ -855,7 +855,10 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"RegisterRoute":             true,
 		"RegisterHTTPRoute":         true,
 		"RegisterRouteWithResponse": true,
-		"StopHTTPServer":            true,
+		"RegisterStaticRoute":         true,
+		"RegisterStaticRouteAdvanced": true,
+		"RegisterHTTPRouteAdvanced":   true,
+		"StopHTTPServer":              true,
 		"IsHTTPServerRunning":       true,
 		"GetHTTPMethod":             true,
 		"GetHTTPPath":               true,
@@ -1092,6 +1095,39 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 			return "", err
 		}
 		return fmt.Sprintf("HTTP route registered: %s %s -> %s (%s)", args[0], args[1], args[3], args[2]), nil
+	case "RegisterStaticRoute":
+		if len(args) < 2 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterStaticRoute requires path and directory arguments").
+				WithContext("function", "RegisterStaticRoute")
+		}
+		err := ee.stdlib.RegisterStaticRoute(args[0], args[1])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Static route registered: %s -> %s", args[0], args[1]), nil
+	case "RegisterStaticRouteAdvanced":
+		if len(args) < 7 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterStaticRouteAdvanced requires path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, and spaFallback arguments").
+				WithContext("function", "RegisterStaticRouteAdvanced")
+		}
+		err := ee.stdlib.RegisterStaticRouteAdvanced(args[0], args[1], args[2], args[3], args[4], args[5], args[6])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Advanced static route registered: %s -> %s (browse:%s, cache:%s, gzip:%s)", args[0], args[1], args[3], args[4], args[5]), nil
+	case "RegisterHTTPRouteAdvanced":
+		if len(args) < 8 {
+			return "", errors.NewExecutionError(errors.ErrInvalidInput,
+				"RegisterHTTPRouteAdvanced requires method, path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, and spaFallback arguments").
+				WithContext("function", "RegisterHTTPRouteAdvanced")
+		}
+		err := ee.stdlib.RegisterHTTPRouteAdvanced(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Advanced HTTP route registered: %s %s -> %s", args[0], args[1], args[2]), nil
 	case "RegisterRouteWithResponse":
 		if len(args) < 2 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,
@@ -1794,6 +1830,15 @@ func (ee *ExecutionEngine) getFunctionNames() []string {
 // executeUserFunction executes a user-defined function
 func (ee *ExecutionEngine) executeUserFunction(ctx context.Context, fn *types.FunctionNode, args []string) (*CommandResult, error) {
 	startTime := time.Now()
+
+	// Debug: print function body
+	fmt.Fprintf(os.Stderr, "[DEBUG] executeUserFunction: function=%s, body nodes=%d\n", fn.Name, len(fn.Body.Nodes))
+	for i, node := range fn.Body.Nodes {
+		fmt.Fprintf(os.Stderr, "[DEBUG]   Body node %d: %T\n", i, node)
+		if cmd, ok := node.(*types.CommandNode); ok {
+			fmt.Fprintf(os.Stderr, "[DEBUG]     Command: %s, Args: %v\n", cmd.Name, cmd.Args)
+		}
+	}
 
 	// Save current environment state for function scope
 	originalEnv := make(map[string]string)

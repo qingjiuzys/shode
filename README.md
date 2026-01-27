@@ -9,7 +9,7 @@
 **现代化 Shell 脚本平台，为 AI 时代的运维而设计**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)](https://github.com/com_818cloud/shode/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/com_818cloud/shode)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/com_818cloud/shode)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/com_818cloud/shode)](https://goreportcard.com/github.com/com_818cloud/shode)
 
@@ -65,6 +65,44 @@
 
 ---
 
+## 🆕 v0.5.0 主要更新
+
+<div align="center">
+
+### 🌐 静态文件服务器完成
+
+完整的静态文件服务能力，构建现代 Web 应用从未如此简单！
+
+</div>
+
+### 🌟 新增特性
+
+#### 静态文件服务器
+- ✅ **基础文件服务** - HTML、CSS、JS、图片等
+- ✅ **自动 MIME 检测** - 支持 20+ 种文件类型
+- ✅ **目录浏览** - 自动生成目录列表页面
+- ✅ **Gzip 压缩** - ~50% 压缩率
+- ✅ **缓存控制** - Cache-Control 头支持
+- ✅ **SPA 回退** - 单页应用支持
+- ✅ **路径保护** - 防止路径遍历攻击
+- ✅ **API 集成** - 静态文件与 API 端点共存
+
+#### 项目示例
+- 📄 个人网站/博客
+- 📚 API 文档服务器
+- 🚀 全栈应用（SPA + API）
+- 📦 文件下载服务器
+
+<div align="center">
+
+**完整文档：** [静态文件服务器指南](examples/STATIC_FILE_SERVER.md) | [项目示例](examples/projects/README.md)
+
+**特性覆盖率：98% 🎯**
+
+</div>
+
+---
+
 ## 🆕 v0.4.0 主要更新
 
 <div align="center">
@@ -75,7 +113,7 @@
 
 </div>
 
-### 🌟 新增特性
+### 🌟 新增特性（v0.4.0）
 
 #### SimpleParser 增强
 - ✅ **完整管道支持** - 多级管道
@@ -97,6 +135,78 @@
 
 ---
 
+## 🌐 HTTP 服务器与静态文件服务
+
+<div align="center">
+
+**强大的内置 Web 服务器，支持完整的静态文件服务和 API 开发**
+
+</div>
+
+### ✨ 核心功能
+
+#### 静态文件服务器
+
+```bash
+#!/usr/bin/env shode
+
+# 启动 HTTP 服务器
+StartHTTPServer "8080"
+
+# 注册静态文件路由
+RegisterStaticRoute "/" "./public"
+
+# 配合 API 端点
+function handleAPI() {
+    SetHTTPResponse 200 '{"status":"ok"}'
+}
+RegisterHTTPRoute "GET" "/api/status" "function" "handleAPI"
+
+# 保持服务器运行
+for i in $(seq 1 100000); do sleep 1; done
+```
+
+#### 高级特性
+
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| **目录浏览** | 自动生成目录列表页面 | ✅ 完成 |
+| **缓存控制** | 设置 Cache-Control 头 | ✅ 完成 |
+| **MIME 类型** | 自动检测 20+ 种文件类型 | ✅ 完成 |
+| **路径保护** | 防止路径遍历攻击 | ✅ 完成 |
+| **多路由** | 支持多个静态目录 | ✅ 完成 |
+| **SPA 支持** | 单页应用回退功能 | ✅ 完成 |
+| **API 集成** | 静态文件与 API 共存 | ✅ 完成 |
+
+#### 完整示例
+
+```bash
+#!/usr/bin/env shode
+
+StartHTTPServer "8080"
+
+# 基础静态文件服务
+RegisterStaticRoute "/" "./public"
+
+# 高级配置：目录浏览 + 缓存控制
+RegisterStaticRouteAdvanced "/docs" "./documentation" \
+    "" "true" "max-age=3600" "" ""
+
+# SPA 应用支持
+RegisterStaticRouteAdvanced "/app" "./spa-build" \
+    "" "false" "" "" "index.html"
+
+# API 端点
+function getUsers() {
+    SetHTTPResponse 200 '{"users":[{"id":1,"name":"Alice"}]}'
+}
+RegisterHTTPRoute "GET" "/api/users" "function" "getUsers"
+```
+
+详细文档：[静态文件服务器指南](examples/STATIC_FILE_SERVER.md)
+
+---
+
 ## 🚀 快速开始
 
 ### 安装
@@ -108,7 +218,7 @@ go build -o shode ./cmd/shode
 
 # 验证安装
 ./shode --version
-# 输出: shode version 0.4.0
+# 输出: shode version 0.5.0
 ```
 
 ### 基本用法
@@ -253,6 +363,14 @@ shode/
 ## 🎓 示例
 
 <div align="center">
+
+### 🌐 Web 项目示例（新增）
+- 📄 [个人网站/博客](examples/projects/personal-website.sh) - 静态网站 + 统计 API
+- 📚 [API 文档服务器](examples/projects/api-docs-server.sh) - 文档浏览 + 搜索 API
+- 🚀 [全栈应用](examples/projects/fullstack-app.sh) - SPA + RESTful API
+- 📦 [文件下载服务器](examples/projects/file-server.sh) - 软件分发 + 版本管理
+
+👉 [查看所有项目示例](examples/projects/README.md)
 
 ### 基础示例
 - [pipeline_examples.sh](examples/pipeline_examples.sh) - 管道演示
@@ -407,7 +525,7 @@ MIT License
 
 ---
 
-**Shode v0.4.0 - Production Ready Shell Scripting Platform** 🎉
+**Shode v0.5.0 - Web-Ready Shell Scripting Platform** 🎉
 
 ---
 

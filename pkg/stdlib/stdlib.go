@@ -2,14 +2,17 @@ package stdlib
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -82,12 +85,23 @@ type NetworkManager struct{}
 // ArchiveManager handles compression/archive operations
 type ArchiveManager struct{}
 
+// StaticFileConfig configures static file serving
+type StaticFileConfig struct {
+	Directory       string   // File directory
+	IndexFiles      []string // Index files (default: ["index.html", "index.htm"])
+	DirectoryBrowse bool     // Directory browsing toggle
+	CacheControl    string   // Cache-Control header (e.g., "max-age=3600")
+	EnableGzip      bool     // gzip compression toggle
+	SPAFallback     string   // SPA fallback file
+}
+
 // routeHandler represents a route handler
 type routeHandler struct {
 	method      string // HTTP method (GET, POST, PUT, DELETE, PATCH, "*" for all)
 	path        string
-	handlerType string // "function" or "script"
+	handlerType string // "function", "script", or "static"
 	handlerName string // function name or script content
+	staticConfig *StaticFileConfig // Only for "static" type
 }
 
 // httpServer represents an HTTP server instance
@@ -95,6 +109,8 @@ type httpServer struct {
 	server      *http.Server
 	mux         *http.ServeMux
 	routes      map[string]*routeHandler // routeKey (method:path) -> handler
+	staticRoutes map[string]*StaticFileConfig // route prefix -> config (for static routes)
+	registeredPaths map[string]bool // Track which paths have mux handlers registered
 	isRunning   bool
 	middlewares []web.Middleware // Global middlewares
 	mu          sync.RWMutex
@@ -111,6 +127,325 @@ func New() *StdLib {
 		systemManager:  &SystemManager{},
 		networkManager: &NetworkManager{},
 		archiveManager: &ArchiveManager{},
+	}
+}
+
+// Static file serving helper functions
+
+// getContentType determines MIME type based on file extension
+func (sl *StdLib) getContentType(filePath string) string {
+	ext := filepath.Ext(filePath)
+	if ext == "" {
+		return "text/plain; charset=utf-8"
+	}
+
+	// Remove the leading dot
+	ext = ext[1:]
+
+	// Try to detect the MIME type
+	mimeType := mime.TypeByExtension("." + ext)
+	if mimeType != "" {
+		return mimeType
+	}
+
+	// Fallback to common types
+	switch strings.ToLower(ext) {
+	case "html", "htm":
+		return "text/html; charset=utf-8"
+	case "css":
+		return "text/css; charset=utf-8"
+	case "js":
+		return "application/javascript; charset=utf-8"
+	case "json":
+		return "application/json; charset=utf-8"
+	case "xml":
+		return "application/xml; charset=utf-8"
+	case "png":
+		return "image/png"
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "gif":
+		return "image/gif"
+	case "svg":
+		return "image/svg+xml"
+	case "ico":
+		return "image/x-icon"
+	case "woff", "woff2":
+		return "font/woff2"
+	case "ttf":
+		return "font/ttf"
+	case "eot":
+		return "application/vnd.ms-fontobject"
+	case "pdf":
+		return "application/pdf"
+	case "zip":
+		return "application/zip"
+	case "txt":
+		return "text/plain; charset=utf-8"
+	case "md":
+		return "text/markdown; charset=utf-8"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// validateStaticDirectory validates and normalizes directory path
+func (sl *StdLib) validateStaticDirectory(directory string) (string, error) {
+	// Convert to absolute path if relative
+	if !filepath.IsAbs(directory) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get working directory: %v", err)
+		}
+		directory = filepath.Join(wd, directory)
+	}
+
+	// Clean the path
+	directory = filepath.Clean(directory)
+
+	// Check if directory exists
+	info, err := os.Stat(directory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("directory does not exist: %s", directory)
+		}
+		return "", fmt.Errorf("failed to access directory: %v", err)
+	}
+
+	// Check if it's actually a directory
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory: %s", directory)
+	}
+
+	return directory, nil
+}
+
+// serveFile serves a single file with proper headers and optional gzip compression
+func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath string, config *StaticFileConfig) error {
+	// Check if file exists
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found")
+		}
+		return fmt.Errorf("failed to access file: %v", err)
+	}
+
+	// Check if it's a directory
+	if info.IsDir() {
+		return fmt.Errorf("is directory")
+	}
+
+	// Read file content
+	content, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %v", err)
+	}
+
+	// Check if gzip compression is enabled and client supports it
+	shouldGzip := config.EnableGzip && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+
+	// Set cache control header if specified
+	if config.CacheControl != "" {
+		w.Header().Set("Cache-Control", config.CacheControl)
+	}
+
+	// Set content type
+	contentType := sl.getContentType(filePath)
+	w.Header().Set("Content-Type", contentType)
+
+	// Apply gzip compression if enabled
+	if shouldGzip {
+		// Compress content
+		var buf bytes.Buffer
+		gzipWriter := gzip.NewWriter(&buf)
+		if _, err := gzipWriter.Write(content); err != nil {
+			gzipWriter.Close()
+			return fmt.Errorf("failed to compress content: %v", err)
+		}
+		gzipWriter.Close()
+
+		// Set gzip header and write compressed content
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+
+		// Calculate original size for uncompressed length
+		originalSize := len(content)
+		w.Header().Set("X-Uncompressed-Size", fmt.Sprintf("%d", originalSize))
+
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			return fmt.Errorf("failed to write compressed content: %v", err)
+		}
+	} else {
+		// Write uncompressed content
+		if _, err := w.Write(content); err != nil {
+			return fmt.Errorf("failed to write content: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// serveDirectoryListing generates a directory browsing page
+func (sl *StdLib) serveDirectoryListing(w http.ResponseWriter, r *http.Request, dirPath, requestPath string) error {
+	// Read directory entries
+	entries, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %v", err)
+	}
+
+	// Generate HTML listing
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, "<!DOCTYPE html>\n")
+	fmt.Fprintf(w, "<html>\n")
+	fmt.Fprintf(w, "<head>\n")
+	fmt.Fprintf(w, "  <title>Index of %s</title>\n", requestPath)
+	fmt.Fprintf(w, "  <style>\n")
+	fmt.Fprintf(w, "    body { font-family: monospace; margin: 2em; }\n")
+	fmt.Fprintf(w, "    h1 { font-size: 1.2em; }\n")
+	fmt.Fprintf(w, "    table { border-collapse: collapse; }\n")
+	fmt.Fprintf(w, "    td, th { padding: 0.5em; text-align: left; }\n")
+	fmt.Fprintf(w, "    a { text-decoration: none; color: #0066cc; }\n")
+	fmt.Fprintf(w, "    a:hover { text-decoration: underline; }\n")
+	fmt.Fprintf(w, "  </style>\n")
+	fmt.Fprintf(w, "</head>\n")
+	fmt.Fprintf(w, "<body>\n")
+	fmt.Fprintf(w, "  <h1>Index of %s</h1>\n", requestPath)
+	fmt.Fprintf(w, "  <table>\n")
+	fmt.Fprintf(w, "    <tr><th>Name</th><th>Size</th></tr>\n")
+
+	// Parent directory link
+	if requestPath != "/" {
+		fmt.Fprintf(w, "    <tr><td><a href=\"..\">../</a></td><td>-</td></tr>\n")
+	}
+
+	// Directory entries
+	for _, entry := range entries {
+		name := entry.Name()
+		size := entry.Size()
+		isDir := entry.IsDir()
+
+		// Skip hidden files
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		displayName := name
+		if isDir {
+			displayName += "/"
+		}
+
+		link := filepath.Join(requestPath, name)
+		fmt.Fprintf(w, "    <tr><td><a href=\"%s\">%s</a></td><td>%d</td></tr>\n", link, displayName, size)
+	}
+
+	fmt.Fprintf(w, "  </table>\n")
+	fmt.Fprintf(w, "</body>\n")
+	fmt.Fprintf(w, "</html>\n")
+
+	return nil
+}
+
+// serveStaticFile handles static file requests
+func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config *StaticFileConfig, routePrefix string) {
+	// Get the requested path relative to the route prefix
+	requestPath := r.URL.Path
+
+	// Remove the route prefix from the request path
+	relativePath := strings.TrimPrefix(requestPath, routePrefix)
+	if relativePath == "" || relativePath == "/" {
+		relativePath = "/"
+	} else {
+		// Ensure relative path starts with /
+		if !strings.HasPrefix(relativePath, "/") {
+			relativePath = "/" + relativePath
+		}
+	}
+
+	// Security check: prevent path traversal attacks
+	if strings.Contains(relativePath, "..") {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Build the full file path
+	filePath := filepath.Join(config.Directory, relativePath)
+
+	// Clean the path to prevent any path traversal attempts
+	filePath = filepath.Clean(filePath)
+
+	// Verify the file is still within the configured directory
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	absDir, err := filepath.Abs(config.Directory)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if !strings.HasPrefix(absFilePath, absDir) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Check if the path exists
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Check for SPA fallback
+			if config.SPAFallback != "" {
+				fallbackPath := filepath.Join(config.Directory, config.SPAFallback)
+				if _, err := os.Stat(fallbackPath); err == nil {
+					// Serve fallback file
+					if err := sl.serveFile(w, r, fallbackPath, config); err != nil {
+						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					}
+					return
+				}
+			}
+			// File not found
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// If it's a directory, try to serve index file
+	if info.IsDir() {
+		// Try each index file
+		indexServed := false
+		for _, indexFile := range config.IndexFiles {
+			indexPath := filepath.Join(filePath, indexFile)
+			if _, err := os.Stat(indexPath); err == nil {
+				if err := sl.serveFile(w, r, indexPath, config); err != nil {
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
+				indexServed = true
+				break
+			}
+		}
+
+		// If no index file found, show directory listing or 404
+		if !indexServed {
+			if config.DirectoryBrowse {
+				if err := sl.serveDirectoryListing(w, r, filePath, relativePath); err != nil {
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
+			} else {
+				http.NotFound(w, r)
+			}
+		}
+		return
+	}
+
+	// Serve the file
+	if err := sl.serveFile(w, r, filePath, config); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
 
@@ -258,10 +593,12 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 	}
 
 	sl.httpServer = &httpServer{
-		server:    server,
-		mux:       mux,
-		routes:    make(map[string]*routeHandler),
-		isRunning: true, // Set to true immediately, before starting goroutine
+		server:          server,
+		mux:             mux,
+		routes:          make(map[string]*routeHandler),
+		staticRoutes:    make(map[string]*StaticFileConfig),
+		registeredPaths: make(map[string]bool),
+		isRunning:       true, // Set to true immediately, before starting goroutine
 	}
 
 	// Debug: confirm httpServer was created
@@ -311,8 +648,8 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 	}
 
 	// Validate handler type
-	if handlerType != "function" && handlerType != "script" {
-		return fmt.Errorf("invalid handler type: %s (must be 'function' or 'script')", handlerType)
+	if handlerType != "function" && handlerType != "script" && handlerType != "static" {
+		return fmt.Errorf("invalid handler type: %s (must be 'function', 'script', or 'static')", handlerType)
 	}
 	fmt.Fprintf(os.Stderr, "[DEBUG] Handler type validated: %s\n", handlerType)
 
@@ -323,21 +660,56 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 	// Create route key: method:path
 	routeKey := fmt.Sprintf("%s:%s", method, path)
 
+	// Create handler with static config if needed
+	var routeHdlr *routeHandler
+	if handlerType == "static" {
+		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Creating static handler for path=%s, directory=%s\n", path, handler)
+		// Validate and prepare static file configuration
+		absDir, err := sl.validateStaticDirectory(handler)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Static directory validation failed: %v\n", err)
+			return fmt.Errorf("invalid static directory: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Static directory validated: %s\n", absDir)
+		routeHdlr = &routeHandler{
+			method:      method,
+			path:        path,
+			handlerType: handlerType,
+			handlerName: handler,
+			staticConfig: &StaticFileConfig{
+				Directory:       absDir,
+				IndexFiles:      []string{"index.html", "index.htm"},
+				DirectoryBrowse: false,
+				CacheControl:    "",
+				EnableGzip:      false,
+				SPAFallback:     "",
+			},
+		}
+	} else {
+		routeHdlr = &routeHandler{
+			method:      method,
+			path:        path,
+			handlerType: handlerType,
+			handlerName: handler,
+		}
+	}
+
 	// Store the handler
-	sl.httpServer.routes[routeKey] = &routeHandler{
-		method:      method,
-		path:        path,
-		handlerType: handlerType,
-		handlerName: handler,
+	sl.httpServer.routes[routeKey] = routeHdlr
+
+	// If this is a static route, also store in staticRoutes for prefix matching
+	if handlerType == "static" && routeHdlr.staticConfig != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Storing static route for path=%s\n", path)
+		sl.httpServer.staticRoutes[path] = routeHdlr.staticConfig
 	}
 
 	// Check if path is already registered
 	// If not, register a method-aware handler
-	pathKey := fmt.Sprintf("path:%s", path)
-	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Checking pathKey=%s, exists=%v\n", pathKey, sl.httpServer.routes[pathKey])
-	if _, exists := sl.httpServer.routes[pathKey]; !exists {
+	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Checking path=%s, registered=%v\n", path, sl.httpServer.registeredPaths[path])
+	if !sl.httpServer.registeredPaths[path] {
 		// Register the route with method checking
 		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Registering mux handler for path %s\n", path)
+		sl.httpServer.registeredPaths[path] = true
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
 			sl.httpServer.mu.RLock()
@@ -361,6 +733,27 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			}
 
 			if selectedHandler == nil {
+				// No exact handler found, check for static routes
+				var staticConfig *StaticFileConfig
+				for prefix, config := range sl.httpServer.staticRoutes {
+					if strings.HasPrefix(r.URL.Path, prefix) {
+						staticConfig = config
+						break
+					}
+				}
+				if staticConfig != nil {
+					// Find the longest matching prefix
+					var longestPrefix string
+					for prefix, config := range sl.httpServer.staticRoutes {
+						if strings.HasPrefix(r.URL.Path, prefix) && len(prefix) > len(longestPrefix) {
+							longestPrefix = prefix
+							staticConfig = config
+						}
+					}
+					// Serve static file
+					sl.serveStaticFile(w, r, staticConfig, longestPrefix)
+					return
+				}
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				fmt.Fprintf(w, "Method Not Allowed\n")
 				return
@@ -397,10 +790,19 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 								Args: []string{}, // Function arguments would come from query params if needed
 							}
 
+							// Store request context globally before executing function
+							// This ensures SetHTTPResponse can find it
+							goroutineID := fmt.Sprintf("func-%s", selectedHandler.handlerName)
+							sl.requestContexts.Store(goroutineID, reqCtx)
+							sl.requestContexts.Store("current", reqCtx)
+
 							// Call ExecuteCommand using reflection
 							ctxValue := reflect.ValueOf(ctx)
 							cmdNodeValue := reflect.ValueOf(cmdNode)
 							results := executeCommandMethod.Call([]reflect.Value{ctxValue, cmdNodeValue})
+
+							// Clean up context
+							sl.requestContexts.Delete(goroutineID)
 
 							// Check for errors
 							if len(results) == 2 && !results[1].IsNil() {
@@ -468,6 +870,10 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 				} else {
 					reqCtx.Response.mu.RUnlock()
 				}
+			} else if selectedHandler.handlerType == "static" {
+				// Serve static files
+				sl.serveStaticFile(w, r, selectedHandler.staticConfig, path)
+				return
 			} else {
 				// Execute script handler
 				if sl.engineFactory != nil {
@@ -559,9 +965,363 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
 			}
 		})
+	}
 
-		// Mark path as registered
-		sl.httpServer.routes[pathKey] = &routeHandler{path: path}
+	return nil
+}
+
+// RegisterStaticRoute registers a simple static file route
+// Usage: RegisterStaticRoute "/" "./public"
+func (sl *StdLib) RegisterStaticRoute(path, directory string) error {
+	return sl.RegisterHTTPRoute("GET", path, "static", directory)
+}
+
+// RegisterStaticRouteAdvanced registers a static file route with advanced options
+// Usage: RegisterStaticRouteAdvanced "/" "./public" "true" "false" "" "false" ""
+func (sl *StdLib) RegisterStaticRouteAdvanced(path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, spaFallback string) error {
+	return sl.RegisterHTTPRouteAdvanced("GET", path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, spaFallback)
+}
+
+// RegisterHTTPRouteAdvanced registers an HTTP route with advanced static file configuration
+func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, spaFallback string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	// Normalize method to uppercase
+	method = strings.ToUpper(method)
+	if method == "" {
+		method = "*"
+	}
+
+	// Validate handler type
+	handlerType := "static"
+
+	sl.httpServer.mu.Lock()
+	defer sl.httpServer.mu.Unlock()
+
+	// Create route key: method:path
+	routeKey := fmt.Sprintf("%s:%s", method, path)
+
+	// Validate and prepare static file configuration
+	absDir, err := sl.validateStaticDirectory(directory)
+	if err != nil {
+		return fmt.Errorf("invalid static directory: %v", err)
+	}
+
+	// Parse index files (comma-separated)
+	var indexFileList []string
+	if indexFiles != "" && indexFiles != "false" {
+		indexFileList = strings.Split(indexFiles, ",")
+		for i, f := range indexFileList {
+			indexFileList[i] = strings.TrimSpace(f)
+		}
+	} else {
+		// Default index files
+		indexFileList = []string{"index.html", "index.htm"}
+	}
+
+	// Parse directory browse (boolean)
+	dirBrowse := false
+	if directoryBrowse == "true" || directoryBrowse == "1" {
+		dirBrowse = true
+	}
+
+	// Parse enable gzip (boolean)
+	enableGzipFlag := false
+	if enableGzip == "true" || enableGzip == "1" {
+		enableGzipFlag = true
+	}
+
+	// Create route handler with full static config
+	routeHdlr := &routeHandler{
+		method:      method,
+		path:        path,
+		handlerType: handlerType,
+		handlerName: directory,
+		staticConfig: &StaticFileConfig{
+			Directory:       absDir,
+			IndexFiles:      indexFileList,
+			DirectoryBrowse: dirBrowse,
+			CacheControl:    cacheControl,
+			EnableGzip:      enableGzipFlag,
+			SPAFallback:     spaFallback,
+		},
+	}
+
+	// Store the handler
+	sl.httpServer.routes[routeKey] = routeHdlr
+
+	// If this is a static route, also store in staticRoutes for prefix matching
+	if routeHdlr.staticConfig != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Storing static route for path=%s\n", path)
+		sl.httpServer.staticRoutes[path] = routeHdlr.staticConfig
+	}
+
+	// Check if path is already registered
+	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Checking path=%s, registered=%v\n", path, sl.httpServer.registeredPaths[path])
+	if !sl.httpServer.registeredPaths[path] {
+		// Register the route with method checking
+		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Registering mux handler for path %s\n", path)
+		sl.httpServer.registeredPaths[path] = true
+		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
+			sl.httpServer.mu.RLock()
+			defer sl.httpServer.mu.RUnlock()
+
+			// Check for exact method match
+			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
+			handler, exactExists := sl.httpServer.routes[exactKey]
+			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for exact key: %s, found=%v\n", exactKey, exactExists)
+
+			// Check for wildcard method match
+			wildcardKey := fmt.Sprintf("*:%s", r.URL.Path)
+			wildcardHandler, wildcardExists := sl.httpServer.routes[wildcardKey]
+			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for wildcard key: %s, found=%v\n", wildcardKey, wildcardExists)
+
+			var selectedHandler *routeHandler
+			if exactExists {
+				selectedHandler = handler
+			} else if wildcardExists {
+				selectedHandler = wildcardHandler
+			}
+
+			if selectedHandler == nil {
+				// No exact handler found, check for static routes
+				var staticConfig *StaticFileConfig
+				for prefix, config := range sl.httpServer.staticRoutes {
+					if strings.HasPrefix(r.URL.Path, prefix) {
+						staticConfig = config
+						break
+					}
+				}
+				if staticConfig != nil {
+					// Find the longest matching prefix
+					var longestPrefix string
+					for prefix, config := range sl.httpServer.staticRoutes {
+						if strings.HasPrefix(r.URL.Path, prefix) && len(prefix) > len(longestPrefix) {
+							longestPrefix = prefix
+							staticConfig = config
+						}
+					}
+					// Serve static file
+					sl.serveStaticFile(w, r, staticConfig, longestPrefix)
+					return
+				}
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				fmt.Fprintf(w, "Method Not Allowed\n")
+				return
+			}
+
+			// Create and store request context
+			reqCtx := sl.createRequestContext(r)
+			goroutineID := fmt.Sprintf("%p", &r) // Use request pointer as unique ID
+			sl.requestContexts.Store(goroutineID, reqCtx)
+			// Also store as "current" for getCurrentRequestContext to find
+			sl.requestContexts.Store("current", reqCtx)
+			defer func() {
+				sl.requestContexts.Delete(goroutineID)
+				sl.requestContexts.Delete("current")
+			}()
+
+			// Execute handler based on type
+			if selectedHandler.handlerType == "function" {
+				// Execute function handler using reflection to avoid circular dependency
+				if sl.engineFactory != nil {
+					engineInterface := sl.engineFactory()
+					if engineInterface != nil {
+						// Use reflection to call ExecuteCommand method
+						engineValue := reflect.ValueOf(engineInterface)
+						executeCommandMethod := engineValue.MethodByName("ExecuteCommand")
+
+						if executeCommandMethod.IsValid() {
+							ctx := context.Background()
+
+							// Create a command node to call the function
+							cmdNode := &types.CommandNode{
+								Pos:  types.Position{Line: 0, Column: 0, Offset: 0},
+								Name: selectedHandler.handlerName,
+								Args: []string{}, // Function arguments would come from query params if needed
+							}
+
+							// Store request context globally before executing function
+							// This ensures SetHTTPResponse can find it
+							goroutineID := fmt.Sprintf("func-%s", selectedHandler.handlerName)
+							sl.requestContexts.Store(goroutineID, reqCtx)
+							sl.requestContexts.Store("current", reqCtx)
+
+							// Call ExecuteCommand using reflection
+							ctxValue := reflect.ValueOf(ctx)
+							cmdNodeValue := reflect.ValueOf(cmdNode)
+							results := executeCommandMethod.Call([]reflect.Value{ctxValue, cmdNodeValue})
+
+							// Clean up context
+							sl.requestContexts.Delete(goroutineID)
+
+							// Check for errors
+							if len(results) == 2 && !results[1].IsNil() {
+								// Error occurred
+								err := results[1].Interface().(error)
+								reqCtx.Response.mu.Lock()
+								reqCtx.Response.Status = http.StatusInternalServerError
+								reqCtx.Response.Body = fmt.Sprintf("Error executing handler: %v", err)
+								reqCtx.Response.mu.Unlock()
+							} else {
+								// Function executed successfully
+								// Wait a moment for SetHTTPResponse to be called
+								// (in case it's called asynchronously or needs time)
+								time.Sleep(10 * time.Millisecond)
+
+								// The function should have called SetHTTPResponse
+								// Check if response was set (after execution)
+								reqCtx.Response.mu.RLock()
+								statusSet := reqCtx.Response.Status != 0
+								bodySet := reqCtx.Response.Body != ""
+								reqCtx.Response.mu.RUnlock()
+
+								// If response wasn't set by function, check command result output
+								if !statusSet || !bodySet {
+									if len(results) >= 1 && !results[0].IsNil() {
+										resultValue := results[0].Interface()
+										resultReflect := reflect.ValueOf(resultValue)
+										if resultReflect.Kind() == reflect.Ptr {
+											resultReflect = resultReflect.Elem()
+										}
+
+										outputField := resultReflect.FieldByName("Output")
+										if outputField.IsValid() && outputField.Kind() == reflect.String {
+											output := outputField.String()
+											if output != "" && !bodySet {
+												reqCtx.Response.mu.Lock()
+												reqCtx.Response.Body = output
+												reqCtx.Response.mu.Unlock()
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// If function didn't set response, set default
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Status == 0 {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Status = http.StatusOK
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Body == "" {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Body = fmt.Sprintf("Handler function: %s (call SetHTTPResponse in function)", selectedHandler.handlerName)
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+			} else if selectedHandler.handlerType == "static" {
+				// Serve static files
+				sl.serveStaticFile(w, r, selectedHandler.staticConfig, path)
+				return
+			} else {
+				// Execute script handler
+				if sl.engineFactory != nil {
+					engineInterface := sl.engineFactory()
+					if engineInterface != nil {
+						// Parse the script
+						p := parser.NewSimpleParser()
+						script, err := p.ParseString(selectedHandler.handlerName)
+						if err == nil {
+							// Use reflection to call Execute method
+							engineValue := reflect.ValueOf(engineInterface)
+							executeMethod := engineValue.MethodByName("Execute")
+
+							if executeMethod.IsValid() {
+								ctx := context.Background()
+								ctxValue := reflect.ValueOf(ctx)
+								scriptValue := reflect.ValueOf(script)
+								results := executeMethod.Call([]reflect.Value{ctxValue, scriptValue})
+
+								if len(results) >= 1 && !results[0].IsNil() {
+									resultValue := results[0].Interface()
+									resultReflect := reflect.ValueOf(resultValue)
+									if resultReflect.Kind() == reflect.Ptr {
+										resultReflect = resultReflect.Elem()
+									}
+
+									outputField := resultReflect.FieldByName("Output")
+									if outputField.IsValid() && outputField.Kind() == reflect.String {
+										output := outputField.String()
+										if output != "" {
+											reqCtx.Response.mu.Lock()
+											if reqCtx.Response.Status == 0 {
+												reqCtx.Response.Status = http.StatusOK
+											}
+											if reqCtx.Response.Body == "" {
+												reqCtx.Response.Body = output
+											}
+											reqCtx.Response.mu.Unlock()
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// Set default if script didn't set response
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Status == 0 {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Status = http.StatusOK
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+
+				reqCtx.Response.mu.RLock()
+				if reqCtx.Response.Body == "" {
+					reqCtx.Response.mu.RUnlock()
+					reqCtx.Response.mu.Lock()
+					reqCtx.Response.Body = fmt.Sprintf("Handler script: %s", selectedHandler.handlerName)
+					reqCtx.Response.mu.Unlock()
+				} else {
+					reqCtx.Response.mu.RUnlock()
+				}
+			}
+
+			// Write response
+			reqCtx.Response.mu.RLock()
+			status := reqCtx.Response.Status
+			body := reqCtx.Response.Body
+			headers := reqCtx.Response.Headers
+			reqCtx.Response.mu.RUnlock()
+
+			// Set headers
+			for k, v := range headers {
+				w.Header().Set(k, v)
+			}
+			if len(headers) == 0 {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			}
+
+			w.WriteHeader(status)
+			if body != "" {
+				fmt.Fprintf(w, "%s", body)
+			} else {
+				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n",
+					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
+			}
+		})
 	}
 
 	return nil
