@@ -113,7 +113,30 @@ type httpServer struct {
 	registeredPaths map[string]bool // Track which paths have mux handlers registered
 	isRunning   bool
 	middlewares []web.Middleware // Global middlewares
+	enableRequestLog bool // Enable request logging
+	requestLogLevel string // Log level: "debug", "info", "error"
 	mu          sync.RWMutex
+}
+
+// responseWriterWrapper wraps http.ResponseWriter to capture status code
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode int
+	written    bool
+}
+
+func (w *responseWriterWrapper) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.written = true
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *responseWriterWrapper) Write(b []byte) (int, error) {
+	if !w.written {
+		w.statusCode = http.StatusOK
+		w.written = true
+	}
+	return w.ResponseWriter.Write(b)
 }
 
 // New creates a new standard library instance
@@ -242,8 +265,61 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 		return fmt.Errorf("failed to read file: %v", err)
 	}
 
+	fileSize := int64(len(content))
+	var start, end int64
+	var sendPartial bool
+
+	// Check for Range header
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		// Parse Range header (format: "bytes=start-end")
+		if strings.HasPrefix(rangeHeader, "bytes=") {
+			rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+			parts := strings.Split(rangeSpec, "-")
+
+			if len(parts) == 2 {
+				// Parse start position
+				if parts[0] != "" {
+					start, err = strconv.ParseInt(parts[0], 10, 64)
+					if err != nil || start < 0 || start >= fileSize {
+						// Invalid range
+						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+						return nil
+					}
+				}
+
+				// Parse end position
+				if parts[1] != "" {
+					end, err = strconv.ParseInt(parts[1], 10, 64)
+					if err != nil || end < start || end >= fileSize {
+						// Invalid range
+						w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+						http.Error(w, "Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+						return nil
+					}
+				} else {
+					// No end specified, use end of file
+					end = fileSize - 1
+				}
+
+				sendPartial = true
+			}
+		}
+	}
+
+	// If no valid range, send entire file
+	if !sendPartial {
+		start = 0
+		end = fileSize - 1
+	}
+
+	// Calculate content length
+	contentLength := end - start + 1
+
 	// Check if gzip compression is enabled and client supports it
-	shouldGzip := config.EnableGzip && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+	// Note: Don't use gzip with Range requests
+	shouldGzip := config.EnableGzip && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && !sendPartial
 
 	// Set cache control header if specified
 	if config.CacheControl != "" {
@@ -253,13 +329,26 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 	// Set content type
 	contentType := sl.getContentType(filePath)
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Apply gzip compression if enabled
+	// Set status code and headers based on whether this is a range request
+	if sendPartial {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	}
+
+	// Extract the requested range
+	contentToSend := content[start:end+1]
+
+	// Apply gzip compression if enabled and not a range request
 	if shouldGzip {
 		// Compress content
 		var buf bytes.Buffer
 		gzipWriter := gzip.NewWriter(&buf)
-		if _, err := gzipWriter.Write(content); err != nil {
+		if _, err := gzipWriter.Write(contentToSend); err != nil {
 			gzipWriter.Close()
 			return fmt.Errorf("failed to compress content: %v", err)
 		}
@@ -270,7 +359,7 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 		w.Header().Set("Vary", "Accept-Encoding")
 
 		// Calculate original size for uncompressed length
-		originalSize := len(content)
+		originalSize := len(contentToSend)
 		w.Header().Set("X-Uncompressed-Size", fmt.Sprintf("%d", originalSize))
 
 		if _, err := w.Write(buf.Bytes()); err != nil {
@@ -278,7 +367,7 @@ func (sl *StdLib) serveFile(w http.ResponseWriter, r *http.Request, filePath str
 		}
 	} else {
 		// Write uncompressed content
-		if _, err := w.Write(content); err != nil {
+		if _, err := w.Write(contentToSend); err != nil {
 			return fmt.Errorf("failed to write content: %v", err)
 		}
 	}
@@ -558,6 +647,70 @@ func (sl *StdLib) Errorln(text string) {
 
 // HTTP Server functions
 
+// logRequest logs HTTP request details
+func (sl *StdLib) logRequest(r *http.Request, statusCode int, duration time.Duration) {
+	if sl.httpServer == nil || !sl.httpServer.enableRequestLog {
+		return
+	}
+
+	// Filter by log level
+	level := sl.httpServer.requestLogLevel
+	if level == "" {
+		level = "info" // default level
+	}
+
+	// Only log errors if level is "error"
+	if level == "error" && statusCode < 400 {
+		return
+	}
+
+	// Format: [timestamp] method path status duration
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	logMessage := fmt.Sprintf("[%s] %s %s %d %vms\n",
+		timestamp,
+		r.Method,
+		r.URL.Path,
+		statusCode,
+		duration.Milliseconds(),
+	)
+
+	// Add query string if present
+	if r.URL.RawQuery != "" {
+		logMessage = fmt.Sprintf("[%s] %s %s?%s %d %vms\n",
+			timestamp,
+			r.Method,
+			r.URL.Path,
+			r.URL.RawQuery,
+			statusCode,
+			duration.Milliseconds(),
+		)
+	}
+
+	if level == "debug" || statusCode >= 400 {
+		fmt.Fprintf(os.Stderr, "[HTTP-LOG] %s", logMessage)
+	}
+}
+
+// EnableRequestLog enables HTTP request logging
+func (sl *StdLib) EnableRequestLog(level string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started. Call StartHTTPServer first")
+	}
+
+	// Validate log level
+	if level != "" && level != "debug" && level != "info" && level != "error" {
+		return fmt.Errorf("invalid log level: %s (must be 'debug', 'info', or 'error')", level)
+	}
+
+	sl.httpServer.enableRequestLog = true
+	sl.httpServer.requestLogLevel = level
+
+	return nil
+}
+
 // StartHTTPServer starts an HTTP server on the specified port
 // Usage: StartHTTPServer "9188"
 func (sl *StdLib) StartHTTPServer(port string) error {
@@ -711,9 +864,21 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Registering mux handler for path %s\n", path)
 		sl.httpServer.registeredPaths[path] = true
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			// Record start time for logging
+			startTime := time.Now()
+
+			// Wrap response writer to capture status code
+			wrapped := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
+
 			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
 			sl.httpServer.mu.RLock()
 			defer sl.httpServer.mu.RUnlock()
+
+			// Log request at the end
+			defer func() {
+				duration := time.Since(startTime)
+				sl.logRequest(r, wrapped.statusCode, duration)
+			}()
 
 			// Check for exact method match
 			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
@@ -751,11 +916,11 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 						}
 					}
 					// Serve static file
-					sl.serveStaticFile(w, r, staticConfig, longestPrefix)
+					sl.serveStaticFile(wrapped, r, staticConfig, longestPrefix)
 					return
 				}
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				fmt.Fprintf(w, "Method Not Allowed\n")
+				wrapped.WriteHeader(http.StatusMethodNotAllowed)
+				fmt.Fprintf(wrapped, "Method Not Allowed\n")
 				return
 			}
 
@@ -951,17 +1116,17 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 
 			// Set headers
 			for k, v := range headers {
-				w.Header().Set(k, v)
+				wrapped.Header().Set(k, v)
 			}
 			if len(headers) == 0 {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				wrapped.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			}
 
-			w.WriteHeader(status)
+			wrapped.WriteHeader(status)
 			if body != "" {
-				fmt.Fprintf(w, "%s", body)
+				fmt.Fprintf(wrapped, "%s", body)
 			} else {
-				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n",
+				fmt.Fprintf(wrapped, "Handler: %s (type: %s, method: %s)\n",
 					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
 			}
 		})
@@ -1068,9 +1233,21 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Registering mux handler for path %s\n", path)
 		sl.httpServer.registeredPaths[path] = true
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			// Record start time for logging
+			startTime := time.Now()
+
+			// Wrap response writer to capture status code
+			wrapped := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
+
 			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
 			sl.httpServer.mu.RLock()
 			defer sl.httpServer.mu.RUnlock()
+
+			// Log request at the end
+			defer func() {
+				duration := time.Since(startTime)
+				sl.logRequest(r, wrapped.statusCode, duration)
+			}()
 
 			// Check for exact method match
 			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
@@ -1108,11 +1285,11 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 						}
 					}
 					// Serve static file
-					sl.serveStaticFile(w, r, staticConfig, longestPrefix)
+					sl.serveStaticFile(wrapped, r, staticConfig, longestPrefix)
 					return
 				}
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				fmt.Fprintf(w, "Method Not Allowed\n")
+				wrapped.WriteHeader(http.StatusMethodNotAllowed)
+				fmt.Fprintf(wrapped, "Method Not Allowed\n")
 				return
 			}
 
@@ -1308,17 +1485,17 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 
 			// Set headers
 			for k, v := range headers {
-				w.Header().Set(k, v)
+				wrapped.Header().Set(k, v)
 			}
 			if len(headers) == 0 {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				wrapped.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			}
 
-			w.WriteHeader(status)
+			wrapped.WriteHeader(status)
 			if body != "" {
-				fmt.Fprintf(w, "%s", body)
+				fmt.Fprintf(wrapped, "%s", body)
 			} else {
-				fmt.Fprintf(w, "Handler: %s (type: %s, method: %s)\n",
+				fmt.Fprintf(wrapped, "Handler: %s (type: %s, method: %s)\n",
 					selectedHandler.handlerName, selectedHandler.handlerType, selectedHandler.method)
 			}
 		})
@@ -1342,9 +1519,15 @@ func (sl *StdLib) RegisterRouteWithResponse(path, response string) error {
 
 	// Register the route with a direct response
 	sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "%s\n", response)
+		startTime := time.Now()
+		wrapped := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
+
+		wrapped.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		wrapped.WriteHeader(http.StatusOK)
+		fmt.Fprintf(wrapped, "%s\n", response)
+
+		duration := time.Since(startTime)
+		sl.logRequest(r, wrapped.statusCode, duration)
 	})
 
 	return nil

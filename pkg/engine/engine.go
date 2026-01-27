@@ -858,6 +858,7 @@ func (ee *ExecutionEngine) isStdLibFunction(funcName string) bool {
 		"RegisterStaticRoute":         true,
 		"RegisterStaticRouteAdvanced": true,
 		"RegisterHTTPRouteAdvanced":   true,
+		"EnableRequestLog":            true,
 		"StopHTTPServer":              true,
 		"IsHTTPServerRunning":       true,
 		"GetHTTPMethod":             true,
@@ -1190,6 +1191,16 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		}
 		ee.stdlib.SetHTTPHeader(args[0], args[1])
 		return "Header set", nil
+	case "EnableRequestLog":
+		level := ""
+		if len(args) > 0 {
+			level = args[0]
+		}
+		err := ee.stdlib.EnableRequestLog(level)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Request logging enabled (level: %s)", level), nil
 	case "SetCache":
 		if len(args) < 2 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,
