@@ -17,6 +17,7 @@ import (
 	"gitee.com/com_818cloud/shode/pkg/environment"
 	"gitee.com/com_818cloud/shode/pkg/errors"
 	"gitee.com/com_818cloud/shode/pkg/registry"
+	"gitee.com/com_818cloud/shode/pkg/semver"
 )
 
 // PackageManager manages Shode package dependencies
@@ -498,4 +499,322 @@ func createTarball(sourceDir string) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// PackageDisplayInfo represents package information for display
+type PackageDisplayInfo struct {
+	Name            string
+	LatestVersion   string
+	InstalledVersion string
+	Description     string
+	Author          string
+	License         string
+	Homepage        string
+	Repository      string
+	Versions        []string
+	Dependencies    map[string]string
+	Downloads       int
+	Verified        bool
+}
+
+// OutdatedPackage represents an outdated package
+type OutdatedPackage struct {
+	Name    string
+	Current string
+	Latest  string
+	IsDev   bool
+}
+
+
+// ========== New Methods for Enhanced Package Management ==========
+
+// UpdateAll updates all dependencies to their latest compatible versions
+func (pm *PackageManager) UpdateAll(dev bool) error {
+	if err := pm.LoadConfig(); err != nil {
+		return err
+	}
+
+	fmt.Println("Checking for updates...")
+
+	// Collect dependencies to update
+	deps := pm.config.Dependencies
+	if dev {
+		for k, v := range pm.config.DevDependencies {
+			deps[k] = v
+		}
+	}
+
+	// Check each dependency
+	for name, constraint := range deps {
+		latest, err := pm.FindLatestVersion(name, constraint)
+		if err != nil {
+			fmt.Printf("  ⚠️  %s: %v\n", name, err)
+			continue
+		}
+
+		current := deps[name]
+		if latest != current {
+			fmt.Printf("  ✓ %s: %s -> %s\n", name, current, latest)
+			// Update config
+			if _, devExists := pm.config.DevDependencies[name]; dev && devExists {
+				pm.config.DevDependencies[name] = latest
+			} else {
+				pm.config.Dependencies[name] = latest
+			}
+		} else {
+			fmt.Printf("  • %s: already up to date (%s)\n", name, current)
+		}
+	}
+
+	// Save updated config
+	if err := pm.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %v", err)
+	}
+
+	fmt.Println("\nConfig updated. Run 'shode pkg install' to install new versions.")
+	return nil
+}
+
+// UpdatePackage updates a specific package to its latest version
+func (pm *PackageManager) UpdatePackage(packageName string, latest bool, dev bool) error {
+	if err := pm.LoadConfig(); err != nil {
+		return err
+	}
+
+	// Get current constraint
+	var currentConstraint string
+	var exists bool
+
+	if dev {
+		currentConstraint, exists = pm.config.DevDependencies[packageName]
+	} else {
+		currentConstraint, exists = pm.config.Dependencies[packageName]
+	}
+
+	if !exists {
+		return fmt.Errorf("package %s not found in dependencies", packageName)
+	}
+
+	// Find latest version
+	var newVersion string
+	if latest {
+		// Get absolute latest
+		newVersion = pm.FindAbsoluteLatest(packageName)
+	} else {
+		// Respect semver constraint
+		var err error
+		newVersion, err = pm.FindLatestVersion(packageName, currentConstraint)
+		if err != nil {
+			return err
+		}
+	}
+
+	if newVersion == "" {
+		return fmt.Errorf("no updates available for %s", packageName)
+	}
+
+	// Update config
+	if dev {
+		pm.config.DevDependencies[packageName] = newVersion
+	} else {
+		pm.config.Dependencies[packageName] = newVersion
+	}
+
+	if err := pm.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %v", err)
+	}
+
+	fmt.Printf("Updated %s from %s to %s\n", packageName, currentConstraint, newVersion)
+	return nil
+}
+
+// FindLatestVersion finds the latest version satisfying a constraint
+func (pm *PackageManager) FindLatestVersion(name, constraint string) (string, error) {
+	if pm.registryClient == nil {
+		return "", fmt.Errorf("registry client not available")
+	}
+
+	// Get package metadata from registry
+	metadata, err := pm.registryClient.GetPackage(name)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse constraint
+	r, err := semver.ParseRange(constraint)
+	if err != nil {
+		return "", err
+	}
+
+	// Collect all versions
+	var versions []*semver.Version
+	for vStr := range metadata.Versions {
+		v, err := semver.ParseVersion(vStr)
+		if err != nil {
+			continue
+		}
+		versions = append(versions, v)
+	}
+
+	// Find max satisfying version
+	maxVersion := r.MaxSatisfying(versions)
+	if maxVersion == nil {
+		return "", fmt.Errorf("no version satisfies %s", constraint)
+	}
+
+	return maxVersion.String(), nil
+}
+
+// FindAbsoluteLatest finds the absolute latest version (ignoring constraints)
+func (pm *PackageManager) FindAbsoluteLatest(name string) string {
+	if pm.registryClient == nil {
+		return ""
+	}
+
+	metadata, err := pm.registryClient.GetPackage(name)
+	if err != nil {
+		return ""
+	}
+
+	// Return the latest version from metadata
+	return metadata.LatestVersion
+}
+
+// ShowPackageInfo displays detailed information about a package
+func (pm *PackageManager) ShowPackageInfo(name string) error {
+	if pm.registryClient == nil {
+		return fmt.Errorf("registry client not available")
+	}
+
+	metadata, err := pm.registryClient.GetPackage(name)
+	if err != nil {
+		return err
+	}
+
+	// Check installed version
+	installedVersion := ""
+	if pm.config != nil {
+		if v, ok := pm.config.Dependencies[name]; ok {
+			installedVersion = v
+		} else if v, ok := pm.config.DevDependencies[name]; ok {
+			installedVersion = v
+		}
+	}
+
+	// Collect all versions
+	var versions []string
+	for v := range metadata.Versions {
+		versions = append(versions, v)
+	}
+
+	// Prepare display info
+	info := &PackageDisplayInfo{
+		Name:            metadata.Name,
+		LatestVersion:   metadata.LatestVersion,
+		InstalledVersion: installedVersion,
+		Description:     metadata.Description,
+		Author:          metadata.Author,
+		License:         metadata.License,
+		Homepage:        metadata.Homepage,
+		Repository:      metadata.Repository,
+		Versions:        versions,
+		Downloads:       metadata.Downloads,
+		Verified:        metadata.Verified,
+	}
+
+	// Get dependencies from latest version
+	if latestVersion, ok := metadata.Versions[metadata.LatestVersion]; ok {
+		info.Dependencies = latestVersion.Dependencies
+	}
+
+	// Print formatted info
+	fmt.Print(formatPackageInfo(info))
+	return nil
+}
+
+// CheckOutdated checks for outdated packages
+func (pm *PackageManager) CheckOutdated() ([]*OutdatedPackage, error) {
+	if err := pm.LoadConfig(); err != nil {
+		return nil, err
+	}
+
+	if pm.registryClient == nil {
+		return nil, fmt.Errorf("registry client not available")
+	}
+
+	var outdated []*OutdatedPackage
+
+	// Check production dependencies
+	for name, currentVersion := range pm.config.Dependencies {
+		metadata, err := pm.registryClient.GetPackage(name)
+		if err != nil {
+			continue
+		}
+
+		if metadata.LatestVersion != currentVersion {
+			outdated = append(outdated, &OutdatedPackage{
+				Name:    name,
+				Current: currentVersion,
+				Latest:  metadata.LatestVersion,
+				IsDev:   false,
+			})
+		}
+	}
+
+	// Check dev dependencies
+	for name, currentVersion := range pm.config.DevDependencies {
+		metadata, err := pm.registryClient.GetPackage(name)
+		if err != nil {
+			continue
+		}
+
+		if metadata.LatestVersion != currentVersion {
+			outdated = append(outdated, &OutdatedPackage{
+				Name:    name,
+				Current: currentVersion,
+				Latest:  metadata.LatestVersion,
+				IsDev:   true,
+			})
+		}
+	}
+
+	return outdated, nil
+}
+
+// Uninstall removes a package from the project
+func (pm *PackageManager) Uninstall(packageName string, dev bool) error {
+	if err := pm.LoadConfig(); err != nil {
+		return err
+	}
+
+	// Remove from config
+	if dev {
+		if _, exists := pm.config.DevDependencies[packageName]; !exists {
+			return fmt.Errorf("package %s not found in dev dependencies", packageName)
+		}
+		delete(pm.config.DevDependencies, packageName)
+	} else {
+		if _, exists := pm.config.Dependencies[packageName]; !exists {
+			return fmt.Errorf("package %s not found in dependencies", packageName)
+		}
+		delete(pm.config.Dependencies, packageName)
+	}
+
+	// Save updated config
+	if err := pm.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %v", err)
+	}
+
+	// Remove package files
+	wd := pm.envManager.GetWorkingDir()
+	packagePath := filepath.Join(wd, "sh_models", packageName)
+
+	if err := os.RemoveAll(packagePath); err != nil {
+		fmt.Printf("Warning: failed to remove package files: %v\n", err)
+	} else {
+		fmt.Printf("Removed package files: %s\n", packagePath)
+	}
+
+	fmt.Printf("Successfully uninstalled %s\n", packageName)
+	return nil
 }

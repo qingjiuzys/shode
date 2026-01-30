@@ -28,6 +28,12 @@ in Shode projects. Uses shode.json for configuration.`,
 	cmd.AddCommand(newPkgSearchCommand())
 	cmd.AddCommand(newPkgPublishCommand())
 
+	// New commands
+	cmd.AddCommand(newPkgUpdateCommand())
+	cmd.AddCommand(newPkgInfoCommand())
+	cmd.AddCommand(newPkgOutdatedCommand())
+	cmd.AddCommand(newPkgUninstallCommand())
+
 	return cmd
 }
 
