@@ -9,7 +9,7 @@
 **现代化 Shell 脚本平台，为 AI 时代的运维而设计**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)](https://github.com/com_818cloud/shode/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/com_818cloud/shode)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/com_818cloud/shode)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/com_818cloud/shode)](https://goreportcard.com/github.com/com_818cloud/shode)
 

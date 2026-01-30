@@ -10,3 +10,7 @@ test/tmp/
 output.txt
 test_write.txt
 test.txt
+web-registry/
+docs-site/
+vscode-shode/
+web-registry/frontend/
