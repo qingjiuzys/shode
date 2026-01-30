@@ -1,0 +1,20 @@
+{
+  "name": "@shode/logger",
+  "version": "1.2.3",
+  "description": "Structured logging for Shode applications with support for multiple log levels and formats",
+  "main": "index.sh",
+  "scripts": {
+    "test": "shode test",
+    "example": "shode run example"
+  },
+  "dependencies": {
+    "@shode/config": "^1.0.0"
+  },
+  "keywords": ["logging", "structured", "console", "output"],
+  "author": "Shode Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shode/packages"
+  }
+}

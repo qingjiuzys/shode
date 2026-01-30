@@ -1,11 +1,9 @@
 package cookie
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // CookieManager Cookie 管理器

@@ -1,8 +1,6 @@
 package commands
 
 import (
-	"fmt"
-
 	pkgmgr "gitee.com/com_818cloud/shode/pkg/pkgmgr"
 	"github.com/spf13/cobra"
 )

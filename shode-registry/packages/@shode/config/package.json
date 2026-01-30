@@ -1,0 +1,17 @@
+{
+  "name": "@shode/config",
+  "version": "1.0.0",
+  "description": "Configuration management library for Shode applications",
+  "main": "index.sh",
+  "scripts": {
+    "test": "shode test"
+  },
+  "dependencies": {},
+  "keywords": ["config", "configuration", "settings"],
+  "author": "Shode Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shode/packages"
+  }
+}

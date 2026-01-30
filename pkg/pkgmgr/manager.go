@@ -517,6 +517,49 @@ type PackageDisplayInfo struct {
 	Verified        bool
 }
 
+// formatPackageName formats package information for display
+func formatPackageName(info *PackageDisplayInfo) string {
+	var buf strings.Builder
+
+	buf.WriteString(fmt.Sprintf("Name:            %s\n", info.Name))
+	buf.WriteString(fmt.Sprintf("Latest Version:  %s\n", info.LatestVersion))
+	if info.InstalledVersion != "" {
+		buf.WriteString(fmt.Sprintf("Installed:       %s\n", info.InstalledVersion))
+	}
+	if info.Description != "" {
+		buf.WriteString(fmt.Sprintf("Description:     %s\n", info.Description))
+	}
+	if info.Author != "" {
+		buf.WriteString(fmt.Sprintf("Author:          %s\n", info.Author))
+	}
+	if info.License != "" {
+		buf.WriteString(fmt.Sprintf("License:         %s\n", info.License))
+	}
+	if info.Homepage != "" {
+		buf.WriteString(fmt.Sprintf("Homepage:        %s\n", info.Homepage))
+	}
+	if info.Repository != "" {
+		buf.WriteString(fmt.Sprintf("Repository:      %s\n", info.Repository))
+	}
+	if len(info.Versions) > 0 {
+		buf.WriteString(fmt.Sprintf("Versions:        %s\n", strings.Join(info.Versions, ", ")))
+	}
+	if len(info.Dependencies) > 0 {
+		buf.WriteString("Dependencies:\n")
+		for dep, ver := range info.Dependencies {
+			buf.WriteString(fmt.Sprintf("  - %s: %s\n", dep, ver))
+		}
+	}
+	if info.Downloads > 0 {
+		buf.WriteString(fmt.Sprintf("Downloads:       %d\n", info.Downloads))
+	}
+	if info.Verified {
+		buf.WriteString("Verified:        ✓\n")
+	}
+
+	return buf.String()
+}
+
 // OutdatedPackage represents an outdated package
 type OutdatedPackage struct {
 	Name    string
@@ -727,8 +770,65 @@ func (pm *PackageManager) ShowPackageInfo(name string) error {
 		info.Dependencies = latestVersion.Dependencies
 	}
 
-	// Print formatted info
-	fmt.Print(formatPackageInfo(info))
+	// Print formatted info directly (inline to avoid cross-package function calls)
+	var builder strings.Builder
+
+	// Package name and version
+	builder.WriteString(fmt.Sprintf("\n%s@%s\n", metadata.Name, metadata.LatestVersion))
+
+	// Description
+	if metadata.Description != "" {
+		builder.WriteString(fmt.Sprintf("\n├─ Description: %s\n", metadata.Description))
+	}
+
+	// Metadata
+	builder.WriteString("├─ Metadata\n")
+	if metadata.Author != "" {
+		builder.WriteString(fmt.Sprintf("│  ├─ Author: %s\n", metadata.Author))
+	}
+	if metadata.License != "" {
+		builder.WriteString(fmt.Sprintf("│  ├─ License: %s\n", metadata.License))
+	}
+	if metadata.Homepage != "" {
+		builder.WriteString(fmt.Sprintf("│  ├─ Homepage: %s\n", metadata.Homepage))
+	}
+	if metadata.Repository != "" {
+		builder.WriteString(fmt.Sprintf("│  └─ Repository: %s\n", metadata.Repository))
+	}
+
+	// Versions
+	if len(info.Versions) > 0 {
+		builder.WriteString(fmt.Sprintf("├─ Versions: %s\n", strings.Join(info.Versions, ", ")))
+	}
+
+	// Dependencies
+	if len(info.Dependencies) > 0 {
+		builder.WriteString("├─ Dependencies\n")
+		for dep, version := range info.Dependencies {
+			builder.WriteString(fmt.Sprintf("│  └─ %s: %s\n", dep, version))
+		}
+	}
+
+	// Statistics
+	builder.WriteString("└─ Statistics\n")
+	builder.WriteString(fmt.Sprintf("   ├─ Downloads: %d\n", info.Downloads))
+	if info.Verified {
+		builder.WriteString("   └─ Verified: ✓ Yes\n")
+	} else {
+		builder.WriteString("   └─ Verified: ✗ No\n")
+	}
+
+	// Installed version
+	if info.InstalledVersion != "" {
+		if info.InstalledVersion != info.LatestVersion {
+			builder.WriteString(fmt.Sprintf("\n⚠️  Installed: %s (Update available: %s)\n",
+				info.InstalledVersion, info.LatestVersion))
+		} else {
+			builder.WriteString(fmt.Sprintf("\n✓ Installed: %s (latest)\n", info.InstalledVersion))
+		}
+	}
+
+	fmt.Print(builder.String())
 	return nil
 }
 

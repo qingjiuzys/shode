@@ -1,0 +1,20 @@
+{
+  "name": "shode-web-app-example",
+  "version": "1.0.0",
+  "description": "Example web application using Shode official packages",
+  "main": "index.sh",
+  "scripts": {
+    "start": "shode run src/main.sh",
+    "dev": "shode run src/main.sh --watch",
+    "test": "shode test"
+  },
+  "dependencies": {
+    "@shode/logger": "^1.2.0",
+    "@shode/config": "^1.0.0",
+    "@shode/http": "^1.0.0"
+  },
+  "devDependencies": {},
+  "keywords": ["example", "web", "demo"],
+  "author": "Shode Team",
+  "license": "MIT"
+}

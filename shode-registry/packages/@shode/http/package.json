@@ -1,0 +1,17 @@
+{
+  "name": "@shode/http",
+  "version": "1.0.0",
+  "description": "HTTP client library for Shode applications",
+  "main": "index.sh",
+  "scripts": {
+    "test": "shode test"
+  },
+  "dependencies": {},
+  "keywords": ["http", "client", "request", "api", "web"],
+  "author": "Shode Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shode/packages"
+  }
+}
