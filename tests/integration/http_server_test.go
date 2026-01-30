@@ -32,31 +32,45 @@ func TestHTTPServerBasic(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test script: Start HTTP server and register route
-	scriptContent := `
-StartHTTPServer "9188"
-sleep 1
-RegisterRouteWithResponse "/" "hello world"
-Println "Server started"
-`
-
-	// Parse script
-	p := parser.NewSimpleParser()
-	script, err := p.ParseString(scriptContent)
-	if err != nil {
-		t.Fatalf("Failed to parse script: %v", err)
+	// Start server first (it runs in goroutine, so returns immediately)
+	serverScript := &types.ScriptNode{
+		Nodes: []types.Node{
+			&types.CommandNode{
+				Name: "StartHTTPServer",
+				Args: []string{"9188"},
+			},
+		},
 	}
 
-	// Execute script in background (since server runs indefinitely)
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+
 	go func() {
-		_, execErr := ee.Execute(ctx, script)
-		if execErr != nil {
-			t.Logf("Script execution error (may be expected): %v", execErr)
+		_, execErr := ee.Execute(serverCtx, serverScript)
+		if execErr != nil && execErr.Error() != "context canceled" {
+			t.Logf("Server execution error: %v", execErr)
 		}
 	}()
 
-	// Wait for server to start
+	// Wait for server to start and be ready
 	time.Sleep(2 * time.Second)
+
+	// Now register routes
+	registerScriptContent := `
+RegisterRouteWithResponse "/" "hello world"
+Println "Route registered"
+`
+
+	p := parser.NewSimpleParser()
+	registerScript, err := p.ParseString(registerScriptContent)
+	if err != nil {
+		t.Fatalf("Failed to parse register script: %v", err)
+	}
+
+	_, err = ee.Execute(ctx, registerScript)
+	if err != nil {
+		t.Fatalf("Failed to register routes: %v", err)
+	}
 
 	// Test HTTP request
 	resp, err := http.Get("http://localhost:9188/")
@@ -79,15 +93,8 @@ Println "Server started"
 	}
 
 	// Stop server
-	stopScript := &types.ScriptNode{
-		Nodes: []types.Node{
-			&types.CommandNode{
-				Name: "StopHTTPServer",
-				Args: []string{},
-			},
-		},
-	}
-	ee.Execute(ctx, stopScript)
+	serverCancel()
+	time.Sleep(500 * time.Millisecond) // Wait for graceful shutdown
 }
 
 func TestHTTPServerFromFile(t *testing.T) {
