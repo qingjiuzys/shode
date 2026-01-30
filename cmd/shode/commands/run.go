@@ -96,7 +96,6 @@ The script will be parsed, analyzed for security risks, and executed in a sandbo
 			// Add a small delay to let the server goroutine fully start
 			time.Sleep(10 * time.Millisecond)
 			isServerRunning := stdLib.IsHTTPServerRunning()
-			fmt.Printf("\n[DEBUG] IsHTTPServerRunning: %v\n", isServerRunning)
 
 			if isServerRunning {
 				fmt.Println("\n--- HTTP Server Running ---")
@@ -118,7 +117,6 @@ The script will be parsed, analyzed for security risks, and executed in a sandbo
 					fmt.Println("HTTP server stopped successfully.")
 				}
 			} else {
-				fmt.Println("\n[DEBUG] HTTP server is NOT running, exiting...")
 			}
 
 			return nil

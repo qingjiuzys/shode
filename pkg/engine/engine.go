@@ -1724,7 +1724,6 @@ func (ee *ExecutionEngine) executeProcess(ctx context.Context, cmd *types.Comman
 
 	// Debug: log environment for problematic commands
 	// if len(envVars) == 0 {
-	//     fmt.Fprintf(os.Stderr, "[DEBUG] No environment variables for command %s\n", actualCmd.Name)
 	// }
 
 	command.Env = envVars
@@ -2061,15 +2060,6 @@ func (ee *ExecutionEngine) getFunctionNames() []string {
 // executeUserFunction executes a user-defined function
 func (ee *ExecutionEngine) executeUserFunction(ctx context.Context, fn *types.FunctionNode, args []string) (*CommandResult, error) {
 	startTime := time.Now()
-
-	// Debug: print function body
-	fmt.Fprintf(os.Stderr, "[DEBUG] executeUserFunction: function=%s, body nodes=%d\n", fn.Name, len(fn.Body.Nodes))
-	for i, node := range fn.Body.Nodes {
-		fmt.Fprintf(os.Stderr, "[DEBUG]   Body node %d: %T\n", i, node)
-		if cmd, ok := node.(*types.CommandNode); ok {
-			fmt.Fprintf(os.Stderr, "[DEBUG]     Command: %s, Args: %v\n", cmd.Name, cmd.Args)
-		}
-	}
 
 	// Save current environment state for function scope
 	originalEnv := make(map[string]string)

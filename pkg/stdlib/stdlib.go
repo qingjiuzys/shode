@@ -848,22 +848,17 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 	port = strings.Trim(port, "\"")
 
 	// Debug output
-	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer called with port %s (trimmed)\n", port)
 
 	// Parse port
 	portNum, err := strconv.Atoi(port)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: invalid port %s: %v\n", port, err)
 		return fmt.Errorf("invalid port: %s", port)
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: port parsed as %d\n", portNum)
 
 	// Check if server already exists and is running
 	if sl.httpServer != nil && sl.httpServer.isRunning {
-		fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: server already running\n")
 		return fmt.Errorf("HTTP server is already running")
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: no existing server, proceeding...\n")
 
 	// Create new server
 	mux := http.NewServeMux()
@@ -883,7 +878,6 @@ func (sl *StdLib) StartHTTPServer(port string) error {
 	}
 
 	// Debug: confirm httpServer was created
-	fmt.Fprintf(os.Stderr, "[DEBUG] StartHTTPServer: httpServer created, isRunning=%v\n", sl.httpServer.isRunning)
 
 	// Start server in goroutine
 	go func() {
@@ -919,11 +913,9 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 	}
 
 	// Debug output
-	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: method=%s, path=%s, handlerType=%s, handler=%s\n", method, path, handlerType, handler)
 
 	// Normalize method to uppercase
 	method = strings.ToUpper(method)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Method normalized to: %s\n", method)
 	if method == "" {
 		method = "*"
 	}
@@ -932,11 +924,9 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 	if handlerType != "function" && handlerType != "script" && handlerType != "static" {
 		return fmt.Errorf("invalid handler type: %s (must be 'function', 'script', or 'static')", handlerType)
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] Handler type validated: %s\n", handlerType)
 
 	sl.httpServer.mu.Lock()
 	defer sl.httpServer.mu.Unlock()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Acquired httpServer lock\n")
 
 	// Create route key: method:path
 	routeKey := fmt.Sprintf("%s:%s", method, path)
@@ -944,14 +934,11 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 	// Create handler with static config if needed
 	var routeHdlr *routeHandler
 	if handlerType == "static" {
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Creating static handler for path=%s, directory=%s\n", path, handler)
 		// Validate and prepare static file configuration
 		absDir, err := sl.validateStaticDirectory(handler)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Static directory validation failed: %v\n", err)
 			return fmt.Errorf("invalid static directory: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Static directory validated: %s\n", absDir)
 		routeHdlr = &routeHandler{
 			method:      method,
 			path:        path,
@@ -980,16 +967,13 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 
 	// If this is a static route, also store in staticRoutes for prefix matching
 	if handlerType == "static" && routeHdlr.staticConfig != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Storing static route for path=%s\n", path)
 		sl.httpServer.staticRoutes[path] = routeHdlr.staticConfig
 	}
 
 	// Check if path is already registered
 	// If not, register a method-aware handler
-	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Checking path=%s, registered=%v\n", path, sl.httpServer.registeredPaths[path])
 	if !sl.httpServer.registeredPaths[path] {
 		// Register the route with method checking
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRoute: Registering mux handler for path %s\n", path)
 		sl.httpServer.registeredPaths[path] = true
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			// Record start time for logging
@@ -998,7 +982,6 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			// Wrap response writer to capture status code
 			wrapped := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
 
-			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
 			sl.httpServer.mu.RLock()
 			defer sl.httpServer.mu.RUnlock()
 
@@ -1011,12 +994,10 @@ func (sl *StdLib) RegisterHTTPRoute(method, path, handlerType, handler string) e
 			// Check for exact method match
 			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
 			handler, exactExists := sl.httpServer.routes[exactKey]
-			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for exact key: %s, found=%v\n", exactKey, exactExists)
 
 			// Check for wildcard method match
 			wildcardKey := fmt.Sprintf("*:%s", r.URL.Path)
 			wildcardHandler, wildcardExists := sl.httpServer.routes[wildcardKey]
-			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for wildcard key: %s, found=%v\n", wildcardKey, wildcardExists)
 
 			var selectedHandler *routeHandler
 			if exactExists {
@@ -1350,15 +1331,12 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 
 	// If this is a static route, also store in staticRoutes for prefix matching
 	if routeHdlr.staticConfig != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Storing static route for path=%s\n", path)
 		sl.httpServer.staticRoutes[path] = routeHdlr.staticConfig
 	}
 
 	// Check if path is already registered
-	fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Checking path=%s, registered=%v\n", path, sl.httpServer.registeredPaths[path])
 	if !sl.httpServer.registeredPaths[path] {
 		// Register the route with method checking
-		fmt.Fprintf(os.Stderr, "[DEBUG] RegisterHTTPRouteAdvanced: Registering mux handler for path %s\n", path)
 		sl.httpServer.registeredPaths[path] = true
 		sl.httpServer.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			// Record start time for logging
@@ -1367,7 +1345,6 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 			// Wrap response writer to capture status code
 			wrapped := &responseWriterWrapper{ResponseWriter: w, statusCode: 200}
 
-			fmt.Fprintf(os.Stderr, "[DEBUG] mux handler called: %s %s\n", r.Method, r.URL.Path)
 			sl.httpServer.mu.RLock()
 			defer sl.httpServer.mu.RUnlock()
 
@@ -1380,12 +1357,10 @@ func (sl *StdLib) RegisterHTTPRouteAdvanced(method, path, directory, indexFiles,
 			// Check for exact method match
 			exactKey := fmt.Sprintf("%s:%s", r.Method, r.URL.Path)
 			handler, exactExists := sl.httpServer.routes[exactKey]
-			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for exact key: %s, found=%v\n", exactKey, exactExists)
 
 			// Check for wildcard method match
 			wildcardKey := fmt.Sprintf("*:%s", r.URL.Path)
 			wildcardHandler, wildcardExists := sl.httpServer.routes[wildcardKey]
-			fmt.Fprintf(os.Stderr, "[DEBUG] Looking for wildcard key: %s, found=%v\n", wildcardKey, wildcardExists)
 
 			var selectedHandler *routeHandler
 			if exactExists {
@@ -1703,7 +1678,6 @@ func (sl *StdLib) IsHTTPServerRunning() bool {
 
 	if sl.httpServer == nil {
 		// Debug output
-		fmt.Fprintf(os.Stderr, "[DEBUG] IsHTTPServerRunning: httpServer is nil\n")
 		return false
 	}
 
@@ -1712,7 +1686,6 @@ func (sl *StdLib) IsHTTPServerRunning() bool {
 
 	running := sl.httpServer.isRunning
 	// Debug output
-	fmt.Fprintf(os.Stderr, "[DEBUG] IsHTTPServerRunning: isRunning=%v\n", running)
 	return running
 }
 
@@ -1725,16 +1698,13 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 	// Parse query parameters
 	queryParams := make(map[string]string)
 	rawQuery := r.URL.RawQuery
-	fmt.Printf("[DEBUG] createRequestContext: RawQuery=%s, Path=%s\n", rawQuery, r.URL.Path)
 	for k, v := range r.URL.Query() {
 		if len(v) > 0 {
 			queryParams[k] = v[0]
-			fmt.Printf("[DEBUG] createRequestContext: parsed param %s=%s\n", k, v[0])
 		}
 	}
 	// Debug: ensure query params are parsed correctly
 	if rawQuery != "" && len(queryParams) == 0 {
-		fmt.Printf("[DEBUG] createRequestContext: RawQuery not empty but no params parsed, trying manual parse\n")
 		// Try manual parsing as fallback
 		parts := strings.Split(rawQuery, "&")
 		for _, part := range parts {
@@ -1746,11 +1716,9 @@ func (sl *StdLib) createRequestContext(r *http.Request) *HTTPRequestContext {
 					value = decoded
 				}
 				queryParams[key] = value
-				fmt.Printf("[DEBUG] createRequestContext: manually parsed param %s=%s\n", key, value)
 			}
 		}
 	}
-	fmt.Printf("[DEBUG] createRequestContext: final queryParams=%v\n", queryParams)
 
 	// Parse headers
 	headers := make(map[string]string)
@@ -1823,9 +1791,7 @@ func (sl *StdLib) GetHTTPPath() string {
 
 // GetHTTPQuery returns a query parameter value
 func (sl *StdLib) GetHTTPQuery(key string) string {
-	fmt.Printf("[DEBUG] GetHTTPQuery called with key: %s\n", key)
 	ctx := sl.getCurrentRequestContext()
-	fmt.Printf("[DEBUG] GetHTTPQuery: getCurrentRequestContext returned: %v\n", ctx != nil)
 	if ctx == nil {
 		// Fallback: try to find any context
 		var foundCtx *HTTPRequestContext
@@ -1841,21 +1807,17 @@ func (sl *StdLib) GetHTTPQuery(key string) string {
 			defer foundCtx.mu.RUnlock()
 			// Debug: print all query params
 			if len(foundCtx.QueryParams) > 0 {
-				fmt.Printf("[DEBUG] GetHTTPQuery: found context with %d params: %v\n", len(foundCtx.QueryParams), foundCtx.QueryParams)
 			}
 			return foundCtx.QueryParams[key]
 		}
-		fmt.Printf("[DEBUG] GetHTTPQuery: no context found for key: %s\n", key)
 		return ""
 	}
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
 	// Debug: print all query params
 	if len(ctx.QueryParams) > 0 {
-		fmt.Printf("[DEBUG] GetHTTPQuery: context has %d params: %v, looking for: %s\n", len(ctx.QueryParams), ctx.QueryParams, key)
 	}
 	result := ctx.QueryParams[key]
-	fmt.Printf("[DEBUG] GetHTTPQuery: returning value: '%s' for key: %s\n", result, key)
 	return result
 }
 
@@ -1883,12 +1845,9 @@ func (sl *StdLib) GetHTTPBody() string {
 
 // SetHTTPResponse sets the HTTP response status and body
 func (sl *StdLib) SetHTTPResponse(status int, body string) {
-	fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse called: status=%d, body=%s\n", status, body)
 	ctx := sl.getCurrentRequestContext()
-	fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: ctx=%v\n", ctx != nil)
 	if ctx == nil {
 		// Fallback: try to find any context
-		fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: ctx is nil, trying fallback\n")
 		var foundCtx *HTTPRequestContext
 		sl.requestContexts.Range(func(key, value interface{}) bool {
 			if httpCtx, ok := value.(*HTTPRequestContext); ok {
@@ -1898,22 +1857,18 @@ func (sl *StdLib) SetHTTPResponse(status int, body string) {
 			return true
 		})
 		if foundCtx != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: found fallback ctx\n")
 			foundCtx.Response.mu.Lock()
 			foundCtx.Response.Status = status
 			foundCtx.Response.Body = body
 			foundCtx.Response.mu.Unlock()
 		} else {
-			fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: no fallback ctx found\n")
 		}
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: setting response on ctx\n")
 	ctx.Response.mu.Lock()
 	defer ctx.Response.mu.Unlock()
 	ctx.Response.Status = status
 	ctx.Response.Body = body
-	fmt.Fprintf(os.Stderr, "[DEBUG] SetHTTPResponse: response set successfully\n")
 }
 
 // SetHTTPHeader sets a response header

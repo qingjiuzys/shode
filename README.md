@@ -9,7 +9,7 @@
 **现代化 Shell 脚本平台，为 AI 时代的运维而设计**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)](https://github.com/com_818cloud/shode/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/com_818cloud/shode)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/com_818cloud/shode)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/com_818cloud/shode)](https://goreportcard.com/github.com/com_818cloud/shode)
 
@@ -65,39 +65,39 @@
 
 ---
 
-## 🆕 v0.5.0 主要更新
+## 🆕 v0.6.0 主要更新
 
 <div align="center">
 
-### 🌐 静态文件服务器完成
+### 🌐 WebSocket 实时通信支持
 
-完整的静态文件服务能力，构建现代 Web 应用从未如此简单！
+完整的 WebSocket 支持，轻松构建实时应用！
 
 </div>
 
 ### 🌟 新增特性
 
-#### 静态文件服务器
-- ✅ **基础文件服务** - HTML、CSS、JS、图片等
-- ✅ **自动 MIME 检测** - 支持 20+ 种文件类型
-- ✅ **目录浏览** - 自动生成目录列表页面
-- ✅ **Gzip 压缩** - ~50% 压缩率
-- ✅ **缓存控制** - Cache-Control 头支持
-- ✅ **SPA 回退** - 单页应用支持
-- ✅ **路径保护** - 防止路径遍历攻击
-- ✅ **API 集成** - 静态文件与 API 端点共存
+#### WebSocket 实时通信
+- ✅ **连接管理** - 自动生命周期管理
+- ✅ **消息收发** - 文本消息实时双向通信
+- ✅ **广播功能** - 全局广播和房间广播
+- ✅ **房间系统** - JoinRoom/LeaveRoom 支持
+- ✅ **状态查询** - 连接数和房间列表
+- ✅ **线程安全** - 完整的并发支持
 
-#### 项目示例
-- 📄 个人网站/博客
-- 📚 API 文档服务器
-- 🚀 全栈应用（SPA + API）
-- 📦 文件下载服务器
+#### 使用示例
+```bash
+# WebSocket 聊天室
+StartHTTPServer "8096"
+RegisterWebSocketRoute "/ws" ""
+BroadcastWebSocketMessage "Hello everyone!"
+```
 
 <div align="center">
 
-**完整文档：** [静态文件服务器指南](examples/STATIC_FILE_SERVER.md) | [项目示例](examples/projects/README.md)
+**完整文档：** [WebSocket 指南](examples/websocket-chat.sh) | [示例项目](examples/)
 
-**特性覆盖率：98% 🎯**
+**特性覆盖率：100% 🎯**
 
 </div>
 
@@ -218,7 +218,7 @@ go build -o shode ./cmd/shode
 
 # 验证安装
 ./shode --version
-# 输出: shode version 0.5.0
+# 输出: shode version 0.6.0
 ```
 
 ### 基本用法
@@ -525,7 +525,7 @@ MIT License
 
 ---
 
-**Shode v0.5.0 - Web-Ready Shell Scripting Platform** 🎉
+**Shode v0.6.0 - WebSocket-Enabled Shell Scripting Platform** 🎉
 
 ---
 
