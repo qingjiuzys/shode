@@ -23,6 +23,7 @@ import (
 	"gitee.com/com_818cloud/shode/pkg/config"
 	"gitee.com/com_818cloud/shode/pkg/database"
 	"gitee.com/com_818cloud/shode/pkg/ioc"
+	"gitee.com/com_818cloud/shode/pkg/middleware"
 	"gitee.com/com_818cloud/shode/pkg/parser"
 	"gitee.com/com_818cloud/shode/pkg/types"
 	"gitee.com/com_818cloud/shode/pkg/web"
@@ -69,6 +70,8 @@ type StdLib struct {
 	systemManager *SystemManager
 	// Network manager
 	networkManager *NetworkManager
+	// Middleware manager
+	middlewareManager *middleware.Manager
 	// Archive manager
 	archiveManager *ArchiveManager
 	// WebSocket manager
@@ -145,14 +148,15 @@ func (w *responseWriterWrapper) Write(b []byte) (int, error) {
 // New creates a new standard library instance
 func New() *StdLib {
 	return &StdLib{
-		cache:          cache.NewCache(),
-		dbManager:      database.NewDatabaseManager(),
-		iocContainer:   ioc.NewContainer(),
-		configManager:  config.NewConfigManager(),
-		filesManager:   &FilesManager{},
-		systemManager:  &SystemManager{},
-		networkManager: &NetworkManager{},
-		archiveManager: &ArchiveManager{},
+		cache:            cache.NewCache(),
+		dbManager:        database.NewDatabaseManager(),
+		iocContainer:     ioc.NewContainer(),
+		configManager:     config.NewConfigManager(),
+		filesManager:     &FilesManager{},
+		systemManager:    &SystemManager{},
+		networkManager:    &NetworkManager{},
+		archiveManager:   &ArchiveManager{},
+		middlewareManager: middleware.NewManager(),
 	}
 }
 
@@ -562,11 +566,8 @@ func (sl *StdLib) serveDirectoryListing(w http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
-// serveStaticFile handles static file requests
-func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config *StaticFileConfig, routePrefix string) {
-	// Get the requested path relative to the route prefix
-	requestPath := r.URL.Path
-
+// normalizeRequestPath normalizes the request path and validates it for security
+func (sl *StdLib) normalizeRequestPath(requestPath, routePrefix string) (string, error) {
 	// Remove the route prefix from the request path
 	relativePath := strings.TrimPrefix(requestPath, routePrefix)
 	if relativePath == "" || relativePath == "/" {
@@ -580,30 +581,78 @@ func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config
 
 	// Security check: prevent path traversal attacks
 	if strings.Contains(relativePath, "..") {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+		return "", fmt.Errorf("path traversal detected")
 	}
 
-	// Build the full file path
-	filePath := filepath.Join(config.Directory, relativePath)
+	return relativePath, nil
+}
 
+// validateFilePath validates that the file path is within the configured directory
+func (sl *StdLib) validateFilePath(filePath, directory string) (string, error) {
 	// Clean the path to prevent any path traversal attempts
 	filePath = filepath.Clean(filePath)
 
 	// Verify the file is still within the configured directory
 	absFilePath, err := filepath.Abs(filePath)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("failed to get absolute path: %v", err)
 	}
 
-	absDir, err := filepath.Abs(config.Directory)
+	absDir, err := filepath.Abs(directory)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return "", fmt.Errorf("failed to get absolute directory: %v", err)
 	}
 
 	if !strings.HasPrefix(absFilePath, absDir) {
+		return "", fmt.Errorf("path outside directory")
+	}
+
+	return filePath, nil
+}
+
+// tryServeIndexFile attempts to serve an index file for a directory
+func (sl *StdLib) tryServeIndexFile(w http.ResponseWriter, r *http.Request, dirPath string, config *StaticFileConfig) bool {
+	for _, indexFile := range config.IndexFiles {
+		indexPath := filepath.Join(dirPath, indexFile)
+		if _, err := os.Stat(indexPath); err == nil {
+			if err := sl.serveFile(w, r, indexPath, config); err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// trySPAFallback attempts to serve the SPA fallback file
+func (sl *StdLib) trySPAFallback(w http.ResponseWriter, r *http.Request, config *StaticFileConfig) bool {
+	if config.SPAFallback == "" {
+		return false
+	}
+
+	fallbackPath := filepath.Join(config.Directory, config.SPAFallback)
+	if _, err := os.Stat(fallbackPath); err == nil {
+		if err := sl.serveFile(w, r, fallbackPath, config); err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+		return true
+	}
+	return false
+}
+
+// serveStaticFile handles static file requests
+func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config *StaticFileConfig, routePrefix string) {
+	// Normalize and validate request path
+	relativePath, err := sl.normalizeRequestPath(r.URL.Path, routePrefix)
+	if err != nil {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Build and validate the full file path
+	filePath := filepath.Join(config.Directory, relativePath)
+	filePath, err = sl.validateFilePath(filePath, config.Directory)
+	if err != nil {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -612,16 +661,9 @@ func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config
 	info, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Check for SPA fallback
-			if config.SPAFallback != "" {
-				fallbackPath := filepath.Join(config.Directory, config.SPAFallback)
-				if _, err := os.Stat(fallbackPath); err == nil {
-					// Serve fallback file
-					if err := sl.serveFile(w, r, fallbackPath, config); err != nil {
-						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					}
-					return
-				}
+			// Try SPA fallback for missing files
+			if sl.trySPAFallback(w, r, config) {
+				return
 			}
 			// File not found - render error page
 			sl.renderErrorPage(w, r, http.StatusNotFound)
@@ -631,37 +673,32 @@ func (sl *StdLib) serveStaticFile(w http.ResponseWriter, r *http.Request, config
 		return
 	}
 
-	// If it's a directory, try to serve index file
+	// Handle directory requests
 	if info.IsDir() {
-		// Try each index file
-		indexServed := false
-		for _, indexFile := range config.IndexFiles {
-			indexPath := filepath.Join(filePath, indexFile)
-			if _, err := os.Stat(indexPath); err == nil {
-				if err := sl.serveFile(w, r, indexPath, config); err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				}
-				indexServed = true
-				break
-			}
-		}
-
-		// If no index file found, show directory listing or 404
-		if !indexServed {
-			if config.DirectoryBrowse {
-				if err := sl.serveDirectoryListing(w, r, filePath, relativePath); err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				}
-			} else {
-				http.NotFound(w, r)
-			}
-		}
+		sl.handleDirectoryRequest(w, r, filePath, relativePath, config)
 		return
 	}
 
 	// Serve the file
 	if err := sl.serveFile(w, r, filePath, config); err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
+}
+
+// handleDirectoryRequest handles requests for directories
+func (sl *StdLib) handleDirectoryRequest(w http.ResponseWriter, r *http.Request, dirPath, relativePath string, config *StaticFileConfig) {
+	// Try to serve an index file
+	if sl.tryServeIndexFile(w, r, dirPath, config) {
+		return
+	}
+
+	// No index file found - show directory listing or 404
+	if config.DirectoryBrowse {
+		if err := sl.serveDirectoryListing(w, r, dirPath, relativePath); err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	} else {
+		http.NotFound(w, r)
 	}
 }
 
@@ -2025,3 +2062,68 @@ func (sl *StdLib) Source(filepath string) (string, error) {
 	// It's registered here for consistency with other stdlib functions
 	return fmt.Sprintf("Source file: %s", filepath), nil
 }
+
+// ==================== Middleware Functions ====================
+
+// UseMiddleware 注册中间件
+// Usage: UseMiddleware "cors"
+func (sl *StdLib) UseMiddleware(name string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started")
+	}
+
+	// 根据名称创建相应的中间件
+	var mw middleware.Middleware
+	switch name {
+	case "cors":
+		mw = middleware.NewCORSMiddleware(nil)
+	case "rate_limit":
+		mw = middleware.NewRateLimitMiddleware(nil)
+	case "logging":
+		mw = middleware.NewLoggingMiddleware(nil)
+	case "recovery":
+		mw = middleware.NewRecoveryMiddleware(nil)
+	case "request_id":
+		mw = middleware.NewRequestIDMiddleware("")
+	default:
+		return fmt.Errorf("unknown middleware: %s", name)
+	}
+
+	sl.middlewareManager.Use(mw)
+	return nil
+}
+
+// ListMiddlewares 列出所有中间件
+func (sl *StdLib) ListMiddlewares() []string {
+	return sl.middlewareManager.List()
+}
+
+// RemoveMiddleware 移除中间件
+func (sl *StdLib) RemoveMiddleware(name string) error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started")
+	}
+
+	sl.middlewareManager.Remove(name)
+	return nil
+}
+
+// ClearMiddlewareManager 清除中间件管理器中的所有中间件
+func (sl *StdLib) ClearMiddlewareManager() error {
+	sl.httpMu.Lock()
+	defer sl.httpMu.Unlock()
+
+	if sl.httpServer == nil {
+		return fmt.Errorf("HTTP server not started")
+	}
+
+	sl.middlewareManager.Clear()
+	return nil
+}
+

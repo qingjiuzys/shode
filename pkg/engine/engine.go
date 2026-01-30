@@ -98,6 +98,364 @@ func NewExecutionEngine(
 	}
 }
 
+// Helper methods for Execute function refactoring
+
+// executeCommandNode handles CommandNode execution including special commands
+func (ee *ExecutionEngine) executeCommandNode(ctx context.Context, node *types.CommandNode, result *ExecutionResult) (*ExecutionResult, error) {
+	// Check for break/continue commands
+	if node.Name == "break" {
+		result.BreakFlag = true
+		result.Success = true
+		return result, nil
+	}
+	if node.Name == "continue" {
+		result.ContinueFlag = true
+		result.Success = true
+		return result, nil
+	}
+
+	// Check for Source command - load and execute another script file
+	if node.Name == "Source" {
+		return ee.executeSourceCommand(ctx, node, result)
+	}
+
+	cmdResult, err := ee.ExecuteCommand(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, cmdResult)
+
+	// Collect command output
+	if cmdResult.Output != "" {
+		result.Output += cmdResult.Output
+		if !strings.HasSuffix(cmdResult.Output, "\n") {
+			result.Output += "\n"
+		}
+	}
+
+	if !cmdResult.Success {
+		result.Success = false
+		result.ExitCode = cmdResult.ExitCode
+	}
+	return result, nil
+}
+
+// executeSourceCommand handles the Source command to load external scripts
+func (ee *ExecutionEngine) executeSourceCommand(ctx context.Context, node *types.CommandNode, result *ExecutionResult) (*ExecutionResult, error) {
+	if len(node.Args) == 0 {
+		result.Success = false
+		result.ExitCode = 1
+		result.Error = "Source requires a file path argument"
+		return result, nil
+	}
+	// Expand the file path
+	filePath := ee.expandVariables(node.Args[0])
+	// Parse and execute the source file
+	sourceResult, err := ee.executeSourceFile(ctx, filePath)
+	if err != nil {
+		result.Success = false
+		result.ExitCode = 1
+		result.Error = fmt.Sprintf("Source error: %v", err)
+		return result, nil
+	}
+	result.Commands = append(result.Commands, sourceResult.Commands...)
+	if !sourceResult.Success {
+		result.Success = false
+		result.ExitCode = sourceResult.ExitCode
+		result.Error = sourceResult.Error
+	}
+	return result, nil
+}
+
+// executePipeNode handles PipeNode execution
+func (ee *ExecutionEngine) executePipeNode(ctx context.Context, node *types.PipeNode, result *ExecutionResult) (*ExecutionResult, error) {
+	pipeResult, err := ee.ExecutePipeline(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, pipeResult.Results...)
+
+	// Collect pipeline output
+	if pipeResult.Output != "" {
+		result.Output += pipeResult.Output
+	}
+
+	if !pipeResult.Success {
+		result.Success = false
+		result.ExitCode = pipeResult.ExitCode
+	}
+	return result, nil
+}
+
+// executeIfNode handles IfNode execution
+func (ee *ExecutionEngine) executeIfNode(ctx context.Context, node *types.IfNode, result *ExecutionResult) (*ExecutionResult, error) {
+	ifResult, err := ee.ExecuteIf(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, ifResult.Commands...)
+
+	// Collect if statement output
+	if ifResult.Output != "" {
+		result.Output += ifResult.Output
+	}
+
+	if !ifResult.Success {
+		result.Success = false
+		result.ExitCode = ifResult.ExitCode
+	}
+	return result, nil
+}
+
+// executeForNode handles ForNode execution
+func (ee *ExecutionEngine) executeForNode(ctx context.Context, node *types.ForNode, result *ExecutionResult) (*ExecutionResult, error) {
+	forResult, err := ee.ExecuteFor(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, forResult.Commands...)
+
+	// Collect for loop output
+	if forResult.Output != "" {
+		result.Output += forResult.Output
+	}
+
+	if !forResult.Success {
+		result.Success = false
+		result.ExitCode = forResult.ExitCode
+	}
+	return result, nil
+}
+
+// executeWhileNode handles WhileNode execution
+func (ee *ExecutionEngine) executeWhileNode(ctx context.Context, node *types.WhileNode, result *ExecutionResult) (*ExecutionResult, error) {
+	whileResult, err := ee.ExecuteWhile(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, whileResult.Commands...)
+
+	// Collect while loop output
+	if whileResult.Output != "" {
+		result.Output += whileResult.Output
+	}
+
+	if !whileResult.Success {
+		result.Success = false
+		result.ExitCode = whileResult.ExitCode
+	}
+	return result, nil
+}
+
+// executeAssignmentNode handles AssignmentNode execution
+func (ee *ExecutionEngine) executeAssignmentNode(node *types.AssignmentNode) error {
+	// First, expand variables in the value
+	expandedValue := ee.expandVariables(node.Value)
+
+	// Check if this is an array assignment: (value1 value2 ...)
+	trimmedValue := strings.TrimSpace(expandedValue)
+	if strings.HasPrefix(trimmedValue, "(") && strings.HasSuffix(trimmedValue, ")") {
+		return ee.executeArrayAssignment(node.Name, trimmedValue)
+	}
+
+	// Handle command substitution and simple assignment
+	if !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
+		if strings.HasPrefix(trimmedValue, "$(") || strings.HasPrefix(trimmedValue, "`") {
+			expandedValue = ee.executeCommandSubstitutionInAssignment(trimmedValue)
+		}
+	}
+	ee.envManager.SetEnv(node.Name, expandedValue)
+	return nil
+}
+
+// executeArrayAssignment handles array assignment like arr=(1 2 3)
+func (ee *ExecutionEngine) executeArrayAssignment(name, trimmedValue string) error {
+	arrayContent := trimmedValue[1 : len(trimmedValue)-1] // Remove ( and )
+	values := ee.parseArrayElements(arrayContent)
+
+	// Store array as space-separated string
+	arrayValue := strings.Join(values, " ")
+	ee.envManager.SetEnv(name, arrayValue)
+
+	// Also store individual elements as name[0], name[1], etc.
+	for i, val := range values {
+		key := fmt.Sprintf("%s[%d]", name, i)
+		ee.envManager.SetEnv(key, val)
+	}
+
+	// Store array length
+	lengthKey := fmt.Sprintf("%s[@]", name)
+	ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(values)))
+	return nil
+}
+
+// executeCommandSubstitutionInAssignment executes command substitution for assignment values
+func (ee *ExecutionEngine) executeCommandSubstitutionInAssignment(trimmedValue string) string {
+	p := shodeparser.NewSimpleParser()
+	script, err := p.ParseString(trimmedValue)
+	if err == nil && len(script.Nodes) > 0 {
+		cmdResult, execErr := ee.Execute(context.Background(), script)
+		if execErr == nil && cmdResult != nil && cmdResult.Success {
+			return strings.TrimSpace(cmdResult.Output)
+		}
+	}
+	return trimmedValue
+}
+
+// executeAndNode handles AndNode (&&) execution
+func (ee *ExecutionEngine) executeAndNode(ctx context.Context, node *types.AndNode, result *ExecutionResult) (*ExecutionResult, error) {
+	// Execute left side first
+	leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(node.Left))
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, leftResult)
+
+	// Collect left output
+	ee.collectOutput(result, leftResult.Output)
+
+	// If left side succeeded, execute right side
+	if leftResult.Success {
+		rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(node.Right))
+		if err != nil {
+			return nil, err
+		}
+		result.Commands = append(result.Commands, rightResult)
+
+		// Collect right output
+		ee.collectOutput(result, rightResult.Output)
+
+		// Overall success depends on right side
+		if !rightResult.Success {
+			result.Success = false
+			result.ExitCode = rightResult.ExitCode
+			result.Error = rightResult.Error
+		}
+	} else {
+		// Left side failed, skip right side
+		result.ExitCode = leftResult.ExitCode
+		result.Error = leftResult.Error
+	}
+	return result, nil
+}
+
+// executeOrNode handles OrNode (||) execution
+func (ee *ExecutionEngine) executeOrNode(ctx context.Context, node *types.OrNode, result *ExecutionResult) (*ExecutionResult, error) {
+	// Execute left side first
+	leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(node.Left))
+	if err != nil {
+		return nil, err
+	}
+	result.Commands = append(result.Commands, leftResult)
+
+	// Collect left output
+	ee.collectOutput(result, leftResult.Output)
+
+	// If left side failed, execute right side
+	if !leftResult.Success {
+		rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(node.Right))
+		if err != nil {
+			return nil, err
+		}
+		result.Commands = append(result.Commands, rightResult)
+
+		// Collect right output
+		ee.collectOutput(result, rightResult.Output)
+
+		// Overall success depends on right side
+		if !rightResult.Success {
+			result.Success = false
+			result.ExitCode = rightResult.ExitCode
+			result.Error = rightResult.Error
+		}
+	}
+	// If left succeeded, we're done (success is already true)
+	return result, nil
+}
+
+// executeBackgroundNode handles BackgroundNode execution
+func (ee *ExecutionEngine) executeBackgroundNode(ctx context.Context, node *types.BackgroundNode, result *ExecutionResult) (*ExecutionResult, error) {
+	cmdNode := types.CastToCommandNode(node.Command)
+	if cmdNode == nil {
+		return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+			"background command must be a CommandNode").
+			WithContext("command_type", fmt.Sprintf("%T", node.Command))
+	}
+
+	bgResult, err := ee.ExecuteCommand(ctx, cmdNode)
+	if err != nil {
+		return nil, err
+	}
+
+	// For now, execute synchronously but mark as background
+	result.Commands = append(result.Commands, bgResult)
+
+	// Collect background command output
+	ee.collectOutput(result, bgResult.Output)
+
+	if !bgResult.Success {
+		result.Success = false
+		result.ExitCode = bgResult.ExitCode
+		result.Error = bgResult.Error
+	}
+	return result, nil
+}
+
+// executeHeredocNode handles HeredocNode execution
+func (ee *ExecutionEngine) executeHeredocNode(ctx context.Context, node *types.HeredocNode, result *ExecutionResult) (*ExecutionResult, error) {
+	// The heredoc body from tree-sitter should NOT contain the end marker
+	heredocBody := strings.TrimRight(node.Body, "\n")
+
+	cmdNode := types.CastToCommandNode(node.Command)
+	if cmdNode == nil {
+		return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+			"heredoc command must be a CommandNode").
+			WithContext("command_type", fmt.Sprintf("%T", node.Command))
+	}
+
+	cmdResult, err := ee.ExecuteCommandWithInput(ctx, cmdNode, heredocBody+"\n")
+	if err != nil {
+		return nil, err
+	}
+
+	result.Commands = append(result.Commands, cmdResult)
+	if !cmdResult.Success {
+		result.Success = false
+		result.ExitCode = cmdResult.ExitCode
+		result.Error = cmdResult.Error
+	} else {
+		result.Output = cmdResult.Output
+	}
+	return result, nil
+}
+
+// executeArrayNode handles ArrayNode execution
+func (ee *ExecutionEngine) executeArrayNode(node *types.ArrayNode) {
+	// Store array as a space-separated string in environment
+	arrayValue := strings.Join(node.Values, " ")
+	ee.envManager.SetEnv(node.Name, arrayValue)
+
+	// Also store individual elements as array_name[0], array_name[1], etc.
+	for i, val := range node.Values {
+		key := fmt.Sprintf("%s[%d]", node.Name, i)
+		ee.envManager.SetEnv(key, val)
+	}
+
+	// Store array length
+	lengthKey := fmt.Sprintf("%s[@]", node.Name)
+	ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(node.Values)))
+}
+
+// collectOutput adds output to result with proper newline handling
+func (ee *ExecutionEngine) collectOutput(result *ExecutionResult, output string) {
+	if output != "" {
+		result.Output += output
+		if !strings.HasSuffix(output, "\n") {
+			result.Output += "\n"
+		}
+	}
+}
+
 // Execute executes a complete script and returns the execution result.
 //
 // The method processes all nodes in the script sequentially, handling commands,
@@ -142,384 +500,78 @@ func (ee *ExecutionEngine) Execute(ctx context.Context, script *types.ScriptNode
 			return result, errors.NewTimeoutError("script execution").
 				WithContext("reason", ctx.Err().Error())
 		}
-		switch n := node.(type) {
-		case *types.CommandNode:
-			// Check for break/continue commands
-			if n.Name == "break" {
-				result.BreakFlag = true
-				result.Success = true
-				return result, nil
-			}
-			if n.Name == "continue" {
-				result.ContinueFlag = true
-				result.Success = true
-				return result, nil
-			}
+	// Execute node based on its type
+	var err error
+	var shouldBreak bool
 
-			// Check for Source command - load and execute another script file
-			if n.Name == "Source" {
-				if len(n.Args) == 0 {
-					result.Success = false
-					result.ExitCode = 1
-					result.Error = "Source requires a file path argument"
-					return result, nil
-				}
-				// Expand the file path
-				filePath := ee.expandVariables(n.Args[0])
-				// Parse and execute the source file
-				sourceResult, err := ee.executeSourceFile(ctx, filePath)
-				if err != nil {
-					result.Success = false
-					result.ExitCode = 1
-					result.Error = fmt.Sprintf("Source error: %v", err)
-					return result, nil
-				}
-				result.Commands = append(result.Commands, sourceResult.Commands...)
-				if !sourceResult.Success {
-					result.Success = false
-					result.ExitCode = sourceResult.ExitCode
-					result.Error = sourceResult.Error
-					break
-				}
-				continue
-			}
-
-			cmdResult, err := ee.ExecuteCommand(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, cmdResult)
-
-			// Collect command output
-			if cmdResult.Output != "" {
-				result.Output += cmdResult.Output
-				if !strings.HasSuffix(cmdResult.Output, "\n") {
-					result.Output += "\n"
-				}
-			}
-
-			if !cmdResult.Success {
-				result.Success = false
-				result.ExitCode = cmdResult.ExitCode
-				break
-			}
-
-		case *types.PipeNode:
-			// Execute pipeline
-			pipeResult, err := ee.ExecutePipeline(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, pipeResult.Results...)
-
-			// Collect pipeline output
-			if pipeResult.Output != "" {
-				result.Output += pipeResult.Output
-			}
-
-			if !pipeResult.Success {
-				result.Success = false
-				result.ExitCode = pipeResult.ExitCode
-				break
-			}
-
-		case *types.IfNode:
-			// Execute if-then-else
-			ifResult, err := ee.ExecuteIf(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, ifResult.Commands...)
-
-			// Collect if statement output
-			if ifResult.Output != "" {
-				result.Output += ifResult.Output
-			}
-
-			if !ifResult.Success {
-				result.Success = false
-				result.ExitCode = ifResult.ExitCode
-				break
-			}
-
-		case *types.ForNode:
-			// Execute for loop
-			forResult, err := ee.ExecuteFor(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, forResult.Commands...)
-
-			// Collect for loop output
-			if forResult.Output != "" {
-				result.Output += forResult.Output
-			}
-
-			if !forResult.Success {
-				result.Success = false
-				result.ExitCode = forResult.ExitCode
-				break
-			}
-
-		case *types.WhileNode:
-			// Execute while loop
-			whileResult, err := ee.ExecuteWhile(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, whileResult.Commands...)
-
-			// Collect while loop output
-			if whileResult.Output != "" {
-				result.Output += whileResult.Output
-			}
-
-			if !whileResult.Success {
-				result.Success = false
-				result.ExitCode = whileResult.ExitCode
-				break
-			}
-
-		case *types.AssignmentNode:
-			// Execute variable assignment
-			// First, expand variables in the value
-			expandedValue := ee.expandVariables(n.Value)
-
-			// Check if this is an array assignment: (value1 value2 ...)
-			trimmedValue := strings.TrimSpace(expandedValue)
-			if strings.HasPrefix(trimmedValue, "(") && strings.HasSuffix(trimmedValue, ")") {
-				// Array assignment
-				arrayContent := trimmedValue[1 : len(trimmedValue)-1] // Remove ( and )
-				// Parse array elements (split by spaces, but respect quotes)
-				values := ee.parseArrayElements(arrayContent)
-
-				// Store array as space-separated string
-				arrayValue := strings.Join(values, " ")
-				ee.envManager.SetEnv(n.Name, arrayValue)
-
-				// Also store individual elements as name[0], name[1], etc.
-				for i, val := range values {
-					key := fmt.Sprintf("%s[%d]", n.Name, i)
-					ee.envManager.SetEnv(key, val)
-				}
-
-				// Store array length
-				lengthKey := fmt.Sprintf("%s[@]", n.Name)
-				ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(values)))
-			} else if !strings.HasPrefix(trimmedValue, "\"") && !strings.HasPrefix(trimmedValue, "'") {
-				// Check if it's a command substitution like $(command) or `command`
-				if strings.HasPrefix(trimmedValue, "$(") || strings.HasPrefix(trimmedValue, "`") {
-					// Command substitution - execute and capture output
-					p := shodeparser.NewSimpleParser()
-					script, err := p.ParseString(trimmedValue)
-					if err == nil && len(script.Nodes) > 0 {
-						cmdResult, execErr := ee.Execute(ctx, script)
-						if execErr == nil && cmdResult != nil && cmdResult.Success {
-							expandedValue = strings.TrimSpace(cmdResult.Output)
-						}
-					}
-				}
-				// Simple assignment
-				ee.envManager.SetEnv(n.Name, expandedValue)
-			} else {
-				// Quoted string assignment - remove quotes
-				ee.envManager.SetEnv(n.Name, expandedValue)
-			}
-
-		case *types.AnnotationNode:
-			// Process annotation (register with annotation processor)
-			// For now, annotations are parsed but not processed
-			// Full integration requires annotation processor integration
-
-		case *types.FunctionNode:
-			// Store function definition (not executing it)
-			ee.functions[n.Name] = n
-
-		case *types.BreakNode:
-			// Set break flag
-			result.BreakFlag = true
-			result.Success = true
-			return result, nil
-
-		case *types.ContinueNode:
-			// Set continue flag
-			result.ContinueFlag = true
-			result.Success = true
-			return result, nil
-
-		case *types.AndNode:
-			// Execute left side first
-			leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Left))
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, leftResult)
-
-			// Collect left output
-			if leftResult.Output != "" {
-				result.Output += leftResult.Output
-				if !strings.HasSuffix(leftResult.Output, "\n") {
-					result.Output += "\n"
-				}
-			}
-
-			// If left side succeeded, execute right side
-			if leftResult.Success {
-				rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Right))
-				if err != nil {
-					return nil, err
-				}
-				result.Commands = append(result.Commands, rightResult)
-
-				// Collect right output
-				if rightResult.Output != "" {
-					result.Output += rightResult.Output
-					if !strings.HasSuffix(rightResult.Output, "\n") {
-						result.Output += "\n"
-					}
-				}
-
-				// Overall success depends on right side
-				if !rightResult.Success {
-					result.Success = false
-					result.ExitCode = rightResult.ExitCode
-					result.Error = rightResult.Error
-				}
-			} else {
-				// Left side failed, skip right side
-				result.ExitCode = leftResult.ExitCode
-				result.Error = leftResult.Error
-			}
-
-		case *types.OrNode:
-			// Execute left side first
-			leftResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Left))
-			if err != nil {
-				return nil, err
-			}
-			result.Commands = append(result.Commands, leftResult)
-
-			// Collect left output
-			if leftResult.Output != "" {
-				result.Output += leftResult.Output
-				if !strings.HasSuffix(leftResult.Output, "\n") {
-					result.Output += "\n"
-				}
-			}
-
-			// If left side failed, execute right side
-			if !leftResult.Success {
-				rightResult, err := ee.ExecuteCommand(ctx, types.CastToCommandNode(n.Right))
-				if err != nil {
-					return nil, err
-				}
-				result.Commands = append(result.Commands, rightResult)
-
-				// Collect right output
-				if rightResult.Output != "" {
-					result.Output += rightResult.Output
-					if !strings.HasSuffix(rightResult.Output, "\n") {
-						result.Output += "\n"
-					}
-				}
-
-				// Overall success depends on right side
-				if !rightResult.Success {
-					result.Success = false
-					result.ExitCode = rightResult.ExitCode
-					result.Error = rightResult.Error
-				}
-			} else {
-				// Left side succeeded, skip right side
-				// Success is already true by default
-			}
-
-		case *types.BackgroundNode:
-			// Execute command in background
-			cmdNode := types.CastToCommandNode(n.Command)
-			if cmdNode == nil {
-				return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
-					"background command must be a CommandNode").
-					WithContext("command_type", fmt.Sprintf("%T", n.Command))
-			}
-
-			bgResult, err := ee.ExecuteCommand(ctx, cmdNode)
-			if err != nil {
-				return nil, err
-			}
-
-			// For now, execute synchronously but mark as background
-			// In a full implementation, this would run in a goroutine
-			result.Commands = append(result.Commands, bgResult)
-
-			// Collect background command output
-			if bgResult.Output != "" {
-				result.Output += bgResult.Output
-				if !strings.HasSuffix(bgResult.Output, "\n") {
-					result.Output += "\n"
-				}
-			}
-
-			if !bgResult.Success {
-				result.Success = false
-				result.ExitCode = bgResult.ExitCode
-				result.Error = bgResult.Error
-			}
-
-		case *types.HeredocNode:
-			// Execute heredoc
-			// The heredoc body from tree-sitter should NOT contain the end marker
-			heredocBody := n.Body
-
-			// Remove trailing newlines
-			heredocBody = strings.TrimRight(heredocBody, "\n")
-
-			// Execute command with heredoc body as input
-			cmdNode := types.CastToCommandNode(n.Command)
-			if cmdNode == nil {
-				return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
-					"heredoc command must be a CommandNode").
-					WithContext("command_type", fmt.Sprintf("%T", n.Command))
-			}
-
-
-			cmdResult, err := ee.ExecuteCommandWithInput(ctx, cmdNode, heredocBody+"\n")
-			if err != nil {
-				return nil, err
-			}
-
-			result.Commands = append(result.Commands, cmdResult)
-			if !cmdResult.Success {
-				result.Success = false
-				result.ExitCode = cmdResult.ExitCode
-				result.Error = cmdResult.Error
-			} else {
-				result.Output = cmdResult.Output
-			}
-
-		case *types.ArrayNode:
-			// Execute array assignment
-			// Store array as a space-separated string in environment
-			// In bash, arrays are accessed as ${array[@]} or ${array[0]}
-			// For now, we'll store the full array as a special variable
-			arrayValue := strings.Join(n.Values, " ")
-			ee.envManager.SetEnv(n.Name, arrayValue)
-
-			// Also store individual elements as array_name[0], array_name[1], etc.
-			for i, val := range n.Values {
-				key := fmt.Sprintf("%s[%d]", n.Name, i)
-				ee.envManager.SetEnv(key, val)
-			}
-
-			// Store array length
-			lengthKey := fmt.Sprintf("%s[@]", n.Name)
-			ee.envManager.SetEnv(lengthKey, fmt.Sprintf("%d", len(n.Values)))
-
-		default:
-			return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
-				fmt.Sprintf("unsupported node type: %T", n)).
-				WithContext("node_type", fmt.Sprintf("%T", n))
+	switch n := node.(type) {
+	case *types.CommandNode:
+		result, err = ee.executeCommandNode(ctx, n, result)
+		if err == nil && result != nil {
+			shouldBreak = !result.Success || result.BreakFlag || result.ContinueFlag
 		}
+	case *types.PipeNode:
+		result, err = ee.executePipeNode(ctx, n, result)
+		if err == nil && result != nil {
+			shouldBreak = !result.Success
+		}
+	case *types.IfNode:
+		result, err = ee.executeIfNode(ctx, n, result)
+		if err == nil && result != nil {
+			shouldBreak = !result.Success
+		}
+	case *types.ForNode:
+		result, err = ee.executeForNode(ctx, n, result)
+		if err == nil && result != nil {
+			shouldBreak = !result.Success
+		}
+	case *types.WhileNode:
+		result, err = ee.executeWhileNode(ctx, n, result)
+		if err == nil && result != nil {
+			shouldBreak = !result.Success
+		}
+	case *types.AssignmentNode:
+		err = ee.executeAssignmentNode(n)
+	case *types.AnnotationNode:
+		// Process annotation (register with annotation processor)
+		// For now, annotations are parsed but not processed
+	case *types.FunctionNode:
+		// Store function definition (not executing it)
+		ee.functions[n.Name] = n
+	case *types.BreakNode:
+		result.BreakFlag = true
+		result.Success = true
+		return result, nil
+	case *types.ContinueNode:
+		result.ContinueFlag = true
+		result.Success = true
+		return result, nil
+	case *types.AndNode:
+		result, err = ee.executeAndNode(ctx, n, result)
+	case *types.OrNode:
+		result, err = ee.executeOrNode(ctx, n, result)
+	case *types.BackgroundNode:
+		result, err = ee.executeBackgroundNode(ctx, n, result)
+	case *types.HeredocNode:
+		result, err = ee.executeHeredocNode(ctx, n, result)
+	case *types.ArrayNode:
+		ee.executeArrayNode(n)
+	default:
+		return nil, errors.NewExecutionError(errors.ErrExecutionFailed,
+			fmt.Sprintf("unsupported node type: %T", n)).
+			WithContext("node_type", fmt.Sprintf("%T", n))
+	}
+
+	// Handle error or early exit
+	if err != nil {
+		return nil, err
+	}
+	if shouldBreak && !result.BreakFlag && !result.ContinueFlag {
+		break
+	}
+	if result.BreakFlag || result.ContinueFlag {
+		return result, nil
+	}
 	}
 
 	result.Duration = time.Since(startTime)
