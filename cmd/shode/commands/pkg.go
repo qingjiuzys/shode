@@ -33,6 +33,7 @@ in Shode projects. Uses shode.json for configuration.`,
 	cmd.AddCommand(newPkgInfoCommand())
 	cmd.AddCommand(newPkgOutdatedCommand())
 	cmd.AddCommand(newPkgUninstallCommand())
+	cmd.AddCommand(newPkgLinkCommand())
 
 	return cmd
 }

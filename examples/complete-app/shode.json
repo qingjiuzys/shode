@@ -1,0 +1,20 @@
+{
+  "name": "shode-complete-example",
+  "version": "1.0.0",
+  "description": "完整的 Shode 应用示例，展示所有官方包的使用",
+  "main": "src/main.sh",
+  "scripts": {
+    "start": "shode run src/main.sh",
+    "dev": "shode run src/main.sh --watch",
+    "test": "shode test",
+    "clean": "rm -rf logs/*.log"
+  },
+  "dependencies": {
+    "@shode/logger": "^1.2.0",
+    "@shode/config": "^1.0.0",
+    "@shode/http": "^1.0.0"
+  },
+  "keywords": ["example", "demo", "complete"],
+  "author": "Shode Team",
+  "license": "MIT"
+}

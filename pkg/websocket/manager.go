@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/net/websocket"
+	gwebsocket "golang.org/x/net/websocket"
 )
 
 // MessageType represents WebSocket message types
@@ -32,7 +32,7 @@ const (
 type Connection struct {
 	ID         string
 	Room       string
-	Conn       *websocket.Conn
+	Conn       *gwebsocket.Conn
 	Request    *http.Request
 	mu         sync.Mutex
 	WriteChan  chan []byte
@@ -315,14 +315,14 @@ func buildFrame(messageType MessageType, data []byte) ([]byte, error) {
 }
 
 // AcceptWebSocket accepts a WebSocket connection
-func AcceptWebSocket(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+func AcceptWebSocket(w http.ResponseWriter, r *http.Request) (*gwebsocket.Conn, error) {
 	// Validate WebSocket handshake
 	if !isWebSocketUpgrade(r) {
 		return nil, fmt.Errorf("not a WebSocket upgrade request")
 	}
 
 	// Create WebSocket connection
-	conn, err := websocket.Upgrade(w, r.Header, nil, 1024, 1024)
+	conn, err := gwebsocket.Upgrade(w, r.Header, nil, 1024, 1024)
 	if err != nil {
 		return nil, err
 	}

@@ -17,8 +17,19 @@ func setupTestEngine(t *testing.T) *ExecutionEngine {
 	stdLib := stdlib.New()
 	modMgr := module.NewModuleManager()
 	sb := sandbox.NewSecurityChecker()
-	
+
 	return NewExecutionEngine(envMgr, stdLib, modMgr, sb)
+}
+
+// setupTestEngineWithEnv 创建测试用的执行引擎并返回环境管理器
+func setupTestEngineWithEnv(t *testing.T) (*ExecutionEngine, *environment.EnvironmentManager) {
+	envMgr := environment.NewEnvironmentManager()
+	stdLib := stdlib.New()
+	modMgr := module.NewModuleManager()
+	sb := sandbox.NewSecurityChecker()
+
+	ee := NewExecutionEngine(envMgr, stdLib, modMgr, sb)
+	return ee, envMgr
 }
 
 // TestNewExecutionEngine 测试创建执行引擎
@@ -72,15 +83,14 @@ func TestExecute_VariableAssignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseString() error = %v", err)
 	}
-	
-	envMgr := environment.NewEnvironmentManager()
-	ee := setupTestEngine(t)
-	
+
+	ee, envMgr := setupTestEngineWithEnv(t)
+
 	_, err = ee.Execute(context.Background(), script)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	
+
 	// 验证变量已设置
 	value := envMgr.GetEnv("NAME")
 	if value != "value" {
