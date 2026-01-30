@@ -1,201 +1,228 @@
-# Shode Project Examples
+# Shode 示例项目
 
-This directory contains real-world project examples demonstrating various use cases of Shode's static file server and HTTP capabilities.
+本目录包含完整的 Shode 示例项目，展示各种功能和最佳实践。
 
-## Available Examples
+## 📁 项目列表
 
-### 1. Personal Website / Blog (`personal-website.sh`)
+### 1. WebSocket 聊天室 (websocket-chat-complete.sh)
 
-**Use Case:** Hosting a simple personal website or blog
+完整的实时聊天应用，展示 WebSocket 功能。
 
-**Features:**
-- Static HTML pages
-- Blog section with multiple posts
-- RESTful API for statistics
-- Simple, clean design
+**功能：**
+- ✅ 实时消息收发
+- ✅ 房间管理
+- ✅ 用户统计
+- ✅ 消息广播
+- ✅ Web 界面
 
-**Run:**
+**运行：**
 ```bash
-./shode run examples/projects/personal-website.sh
+./examples/projects/websocket-chat-complete.sh
 ```
 
-**Access:** http://localhost:3000
+**访问：**
+- WebSocket: `ws://localhost:8098/ws`
+- Web 界面: `http://localhost:8098/`
+- API: `http://localhost:8098/api/`
 
-**Includes:**
-- Home page at `/`
-- Blog section at `/blog/`
-- About page at `/about.html`
-- Stats API at `/api/stats`
+### 2. REST API with Cache (rest-api-with-cache.sh)
+
+带缓存优化的 RESTful API 示例。
+
+**功能：**
+- ✅ CRUD 操作
+- ✅ SQLite 数据库
+- ✅ 内存缓存
+- ✅ 缓存失效策略
+
+**运行：**
+```bash
+./examples/projects/rest-api-with-cache.sh
+```
+
+**API 端点：**
+```bash
+# 获取用户列表
+curl http://localhost:8099/api/users
+
+# 创建用户
+curl 'http://localhost:8099/api/users?name=Alice&email=alice@example.com' -X POST
+
+# 获取单个用户
+curl 'http://localhost:8099/api/user?id=1'
+
+# 更新用户
+curl 'http://localhost:8099/api/user?id=1&name=Alice+Smith' -X PUT
+
+# 删除用户
+curl 'http://localhost:8099/api/user?id=1' -X DELETE
+```
+
+### 3. 静态文件服务器
+
+提供静态文件服务。
+
+**运行：**
+```bash
+./examples/projects/personal-website.sh
+```
+
+### 4. API 文档服务器
+
+API 文档浏览和搜索。
+
+**运行：**
+```bash
+./examples/projects/api-docs-server.sh
+```
+
+### 5. 全栈应用
+
+SPA + RESTful API 的完整应用。
+
+**运行：**
+```bash
+./examples/projects/fullstack-app.sh
+```
 
 ---
 
-### 2. API Documentation Server (`api-docs-server.sh`)
+## 🚀 快速开始
 
-**Use Case:** Hosting searchable API documentation
+### 1. 选择项目
 
-**Features:**
-- Directory browsing enabled for easy navigation
-- Multiple documentation versions
-- Static assets with caching
-- Search API endpoint
-
-**Run:**
 ```bash
-./shode run examples/projects/api-docs-server.sh
+cd examples/projects
+ls -la
 ```
 
-**Access:** http://localhost:8080
+### 2. 运行项目
 
-**Includes:**
-- Documentation browser at `/docs`
-- Static assets at `/assets`
-- Search API at `/api/search`
+```bash
+# 直接运行
+./websocket-chat-complete.sh
+
+# 或使用 shode 运行
+shode run websocket-chat-complete.sh
+```
+
+### 3. 访问应用
+
+打开浏览器访问对应的 URL。
 
 ---
 
-### 3. Full-Stack Application (`fullstack-app.sh`)
+## 📚 学习路径
 
-**Use Case:** Complete web application with frontend and backend
+### 初学者
 
-**Features:**
-- SPA (Single Page Application) support
-- RESTful API with CRUD operations
-- Client-side routing fallback
-- Health check endpoint
-- JSON responses
+1. **personal-website.sh** - 最简单，静态文件服务
+2. **api-docs-server.sh** - 添加 API 端点
+3. **websocket-chat-complete.sh** - WebSocket 基础
 
-**Run:**
-```bash
-./shode run examples/projects/fullstack-app.sh
-```
+### 中级
 
-**Access:** http://localhost:4000
+1. **rest-api-with-cache.sh** - 数据库 + 缓存
+2. **fullstack-app.sh** - 前后端集成
+3. **file-server.sh** - 文件上传下载
 
-**API Endpoints:**
-- `GET /api/users` - List all users
-- `GET /api/users/1` - Get user by ID
-- `POST /api/users` - Create new user
-- `GET /api/health` - Health check
+### 高级
+
+1. **error-pages-demo.sh** - 自定义错误页面
+2. **template-demo.sh** - 模板引擎
+3. **websocket-rooms.sh** - 高级 WebSocket 功能
 
 ---
 
-### 4. File Download Server (`file-server.sh`)
+## 🛠️ 项目结构
 
-**Use Case:** Distributing software releases and files
-
-**Features:**
-- Optimized for downloads (long cache times)
-- Separate sections for downloads and release notes
-- Directory browsing for release notes
-- Latest version API
-
-**Run:**
-```bash
-./shode run examples/projects/file-server.sh
 ```
-
-**Access:** http://localhost:5000
-
-**Includes:**
-- File downloads at `/downloads`
-- Release notes at `/releases` (with browsing)
-- File list API at `/api/files`
-- Latest version API at `/api/latest`
+examples/projects/
+├── public/                      # 静态资源
+│   └── index.html              # 聊天室前端
+├── websocket-chat-complete.sh  # WebSocket 聊天室
+├── rest-api-with-cache.sh      # REST API 示例
+├── personal-website.sh         # 个人网站
+├── api-docs-server.sh          # API 文档服务器
+├── fullstack-app.sh            # 全栈应用
+├── file-server.sh              # 文件服务器
+├── error-pages-demo.sh         # 错误页面演示
+└── template-demo.sh            # 模板演示
+```
 
 ---
 
-## Quick Start
+## 💡 最佳实践
 
-1. **Choose an example** that matches your use case
-2. **Run the script:**
-   ```bash
-   ./shode run examples/projects/[example-name].sh
-   ```
-3. **Open your browser** and navigate to the specified port
-4. **Stop the server:** Press `Ctrl+C`
+这些示例展示了以下最佳实践：
 
-## Customization
+### 1. 错误处理
 
-Each example can be easily customized:
-
-### Change Port
-Edit the `StartHTTPServer` line:
 ```bash
-StartHTTPServer "8080"  # Change to your preferred port
-```
-
-### Change Directory
-Edit the `RegisterStaticRoute` line:
-```bash
-RegisterStaticRoute "/" "./your-directory"
-```
-
-### Add API Endpoints
-```bash
-function yourFunction() {
-    SetHTTPResponse 200 '{"status":"ok"}'
+function handleRequest() {
+    # 验证输入
+    if IsEmpty $input; then
+        SetHTTPResponse 400 '{"error":"Invalid input"}'
+        return
+    fi
+    
+    # 处理请求
+    result, err := ProcessRequest $input
+    if $err; then
+        SetHTTPResponse 500 '{"error":"Internal error"}'
+        return
+    fi
+    
+    SetHTTPResponse 200 $result
 }
-RegisterHTTPRoute "GET" "/api/endpoint" "function" "yourFunction"
 ```
 
-## Common Patterns
+### 2. 缓存策略
 
-### Serving a React/Vue SPA
 ```bash
-RegisterStaticRouteAdvanced "/" "./dist" \
-    "index.html" \
-    "false" \
-    "max-age=3600" \
-    "true" \
-    "index.html"  # SPA fallback
+# 先检查缓存
+cached, exists := GetCache "key"
+if $exists; then
+    SetHTTPResponse 200 $cached
+    return
+fi
+
+# 查询数据
+data := QueryDB "SELECT * FROM table"
+
+# 存入缓存
+SetCache "key" $data 3600
 ```
 
-### Enabling Directory Browsing
+### 3. 并发安全
+
 ```bash
-RegisterStaticRouteAdvanced "/docs" "./docs" \
-    "" \
-    "true" \
-    "" \
-    "false" \
-    ""
+# 使用锁保护共享状态
+sl.httpMu.Lock()
+defer sl.httpMu.Unlock()
 ```
 
-### Long Cache for Assets
-```bash
-RegisterStaticRouteAdvanced "/static" "./static" \
-    "" \
-    "false" \
-    "max-age=86400" \
-    "true" \
-    ""
-```
+---
 
-## Next Steps
+## 📖 相关文档
 
-- Check the [Static File Server Documentation](../STATIC_FILE_SERVER.md) for detailed API reference
-- See the [Implementation Guide](../../docs/STATIC_FILE_SERVER_IMPLEMENTATION.md) for technical details
-- Explore the source code to understand how each feature works
+- [API 参考](../../docs/API_REFERENCE.md)
+- [最佳实践](../../docs/BEST_PRACTICES.md)
+- [WebSocket 指南](../../docs/WEBSOCKET_GUIDE.md)
+- [编码规范](../../docs/CODING_STANDARDS.md)
 
-## Troubleshooting
+---
 
-**Port already in use:**
-```bash
-# Find process using the port
-lsof -i :8080
+## 🤝 贡献
 
-# Kill the process
-kill -9 [PID]
-```
+欢迎提交更多示例项目！
 
-**Files not found:**
-- Make sure you're running the script from the project root directory
-- Check that the specified directories exist relative to where you run the script
+提交前请确保：
+- ✅ 代码遵循编码规范
+- ✅ 有完整的注释
+- ✅ 包含使用说明
+- ✅ 提供示例输出
 
-**API not responding:**
-- Check the server logs for error messages
-- Verify the function is defined before calling `RegisterHTTPRoute`
-- Ensure you're using the correct HTTP method (GET, POST, etc.)
+---
 
-## Contributing
-
-Have a great example to share? Feel free to submit a pull request!
+**Happy Coding with Shode!** 🚀

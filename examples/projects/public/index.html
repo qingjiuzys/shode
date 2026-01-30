@@ -1,53 +1,233 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Personal Website</title>
+    <title>Shode WebSocket Chat Demo</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
-        h1 { color: #333; border-bottom: 2px solid #007acc; padding-bottom: 10px; }
-        .stats { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; }
-        .post { background: white; border: 1px solid #ddd; padding: 20px; margin: 10px 0; border-radius: 5px; }
-        .post h2 { margin-top: 0; color: #007acc; }
-        nav { background: #007acc; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
-        nav a { color: white; text-decoration: none; margin-right: 20px; font-weight: bold; }
-        nav a:hover { text-decoration: underline; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .chat-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 800px;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .chat-header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        .chat-messages {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            max-width: 80%;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.system {
+            background: #e3f2fd;
+            color: #1976d2;
+            margin: 0 auto;
+            text-align: center;
+            font-size: 12px;
+        }
+        .message.user {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+        .message.other {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+        .chat-input {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 12px;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 24px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .chat-input input:focus {
+            border-color: #667eea;
+        }
+        .chat-input button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .chat-input button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .chat-input button:active {
+            transform: translateY(0);
+        }
+        .status-bar {
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body>
-    <nav>
-        <a href="/">Home</a>
-        <a href="/blog/">Blog</a>
-        <a href="/about.html">About</a>
-        <a href="/api/stats">API Stats</a>
-    </nav>
-
-    <h1>Welcome to My Website</h1>
-
-    <div class="stats">
-        <h3>📊 Site Statistics</h3>
-        <p>Powered by Shode Static File Server</p>
-        <p><em>Check the API: <a href="/api/stats">/api/stats</a></em></p>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🚀 Shode WebSocket Chat</h1>
+            <p>实时聊天演示 - Powered by Shode</p>
+        </div>
+        
+        <div class="chat-messages" id="messages">
+            <div class="message system">
+                欢迎使用 Shode WebSocket 聊天室！
+            </div>
+        </div>
+        
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="输入消息..." autofocus>
+            <button onclick="sendMessage()">发送</button>
+        </div>
+        
+        <div class="status-bar">
+            <span id="status">⚫ 未连接</span>
+            <span id="connectionCount">连接数: 0</span>
+        </div>
     </div>
 
-    <h2>Latest Blog Posts</h2>
-    <div class="post">
-        <h2>Getting Started with Shode</h2>
-        <p>Published on January 27, 2026</p>
-        <p>Learn how to build web applications using shell scripts...</p>
-        <a href="/blog/shode-intro.html">Read more →</a>
-    </div>
+    <script>
+        let ws = null;
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const statusSpan = document.getElementById('status');
+        const connectionCountSpan = document.getElementById('connectionCount');
 
-    <div class="post">
-        <h2>Static File Servers Made Simple</h2>
-        <p>Published on January 26, 2026</p>
-        <p>Discover how easy it is to host static websites...</p>
-        <a href="/blog/static-servers.html">Read more →</a>
-    </div>
+        function connect() {
+            ws = new WebSocket('ws://localhost:8098/ws');
+            
+            ws.onopen = () => {
+                statusSpan.textContent = '🟢 已连接';
+                addMessage('system', '已连接到服务器');
+            };
+            
+            ws.onmessage = (event) => {
+                addMessage('other', event.data);
+            };
+            
+            ws.onclose = () => {
+                statusSpan.textContent = '🔴 已断开';
+                addMessage('system', '与服务器断开连接');
+                setTimeout(connect, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
 
-    <footer>
-        <p>&copy; 2026 My Personal Website | Built with Shode</p>
-    </footer>
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message || !ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            ws.send(message);
+            addMessage('user', message);
+            messageInput.value = '';
+            
+            // 更新连接数（模拟）
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(data => {
+                    connectionCountSpan.textContent = `连接数: ${data.connections}`;
+                });
+        }
+
+        function addMessage(type, text) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            
+            const time = new Date().toLocaleTimeString('zh-CN', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            
+            div.innerHTML = `
+                ${text}
+                <div class="message-time">${time}</div>
+            `;
+            
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // 连接
+        connect();
+
+        // 定期更新连接数
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                fetch('/api/stats')
+                    .then(r => r.json())
+                    .then(data => {
+                        connectionCountSpan.textContent = `连接数: ${data.connections}`;
+                    });
+            }
+        }, 5000);
+    </script>
 </body>
 </html>
