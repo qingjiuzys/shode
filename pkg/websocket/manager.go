@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	gwebsocket "golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 // MessageType represents WebSocket message types
@@ -32,7 +32,7 @@ const (
 type Connection struct {
 	ID         string
 	Room       string
-	Conn       *gwebsocket.Conn
+	Conn       *websocket.Conn
 	Request    *http.Request
 	mu         sync.Mutex
 	WriteChan  chan []byte
@@ -229,13 +229,24 @@ func (c *Connection) Send(messageType MessageType, data []byte) error {
 	default:
 	}
 
-	frame, err := buildFrame(messageType, data)
-	if err != nil {
-		return err
+	// gorilla/websocket expects int for message type
+	var mt int
+	switch messageType {
+	case TextMessage:
+		mt = websocket.TextMessage
+	case BinaryMessage:
+		mt = websocket.BinaryMessage
+	case PingMessage:
+		mt = websocket.PingMessage
+	case PongMessage:
+		mt = websocket.PongMessage
+	case CloseMessage:
+		mt = websocket.CloseMessage
+	default:
+		mt = websocket.TextMessage
 	}
 
-	_, err = c.Conn.Write(frame)
-	return err
+	return c.Conn.WriteMessage(mt, data)
 }
 
 // Close closes the connection
@@ -315,14 +326,23 @@ func buildFrame(messageType MessageType, data []byte) ([]byte, error) {
 }
 
 // AcceptWebSocket accepts a WebSocket connection
-func AcceptWebSocket(w http.ResponseWriter, r *http.Request) (*gwebsocket.Conn, error) {
+func AcceptWebSocket(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	// Validate WebSocket handshake
 	if !isWebSocketUpgrade(r) {
 		return nil, fmt.Errorf("not a WebSocket upgrade request")
 	}
 
-	// Create WebSocket connection
-	conn, err := gwebsocket.Upgrade(w, r.Header, nil, 1024, 1024)
+	// Create WebSocket upgrader
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+	}
+
+	// Upgrade the connection
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return nil, err
 	}

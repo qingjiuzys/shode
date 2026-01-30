@@ -23,7 +23,7 @@ modern development practices, safety features, and ecosystem tools
 	rootCmd.AddCommand(commands.NewExecCommand())
 	rootCmd.AddCommand(commands.NewReplCommand())
 	rootCmd.AddCommand(commands.NewPkgCommand())
-	rootCmd.AddCommand(commands.NewInitCommand())
+	rootCmd.AddCommand(commands.NewInitCommandEnhanced())
 	rootCmd.AddCommand(commands.NewVersionCommand())
 
 	if err := rootCmd.Execute(); err != nil {
