@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Run tests
+      run: go test -v ./...
+
+    - name: Build for multiple platforms
+      run: |
+        mkdir -p release
+        
+        # Linux
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o release/shode-linux-amd64 ./cmd/shode
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o release/shode-linux-arm64 ./cmd/shode
+        
+        # macOS
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o release/shode-darwin-amd64 ./cmd/shode
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o release/shode-darwin-arm64 ./cmd/shode
+        
+        # Windows
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o release/shode-windows-amd64.exe ./cmd/shode
+        
+        # 打包
+        cd release
+        tar -czf shode-linux-amd64.tar.gz shode-linux-amd64
+        tar -czf shode-linux-arm64.tar.gz shode-linux-arm64
+        tar -czf shode-darwin-amd64.tar.gz shode-darwin-amd64
+        tar -czf shode-darwin-arm64.tar.gz shode-darwin-arm64
+        zip shode-windows-amd64.zip shode-windows-amd64.exe
+
+    - name: Generate Release Notes
+      id: release_notes
+      run: |
+        echo "## 变更日志" > release_notes.md
+        echo "" >> release_notes.md
+        echo "### 下载" >> release_notes.md
+        echo "- **Linux AMD64**: shode-linux-amd64.tar.gz" >> release_notes.md
+        echo "- **Linux ARM64**: shode-linux-arm64.tar.gz" >> release_notes.md
+        echo "- **macOS Intel**: shode-darwin-amd64.tar.gz" >> release_notes.md
+        echo "- **macOS Apple Silicon**: shode-darwin-arm64.tar.gz" >> release_notes.md
+        echo "- **Windows**: shode-windows-amd64.zip" >> release_notes.md
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release/*.tar.gz
+          release/*.zip
+        body_path: release/release_notes.md
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

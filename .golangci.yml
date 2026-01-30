@@ -1,0 +1,148 @@
+# golangci-lint 配置文件
+# 参考: https://golangci-lint.run/usage/configuration/
+
+run:
+  # 运行超时时间
+  timeout: 5m
+  # 并发数
+  concurrency: 4
+  # 要检查的 Go 版本
+  go: "1.21"
+  # 排除的目录
+  skip-dirs:
+    - vendor
+    - tmp
+    - website
+    - docs
+  # 排除的文件
+  skip-files:
+    - ".*\\.pb\\.go$"
+    - ".*_gen\\.go$"
+
+# 输出配置
+output:
+  # 输出格式: colored-line-number|line-number|json|tab|checkstyle|code-climate
+  formats:
+    - format: colored-line-number
+  # 打印检查的 linters 名称
+  print-linter-name: true
+  # 排序结果
+  sort-results: true
+
+# 启用的 linters
+linters:
+  disable-all: true
+  enable:
+    # 错误检查
+    - errcheck      # 检查未处理的错误
+    - gosec         # 安全检查
+    - gosimple      # 简化代码
+    - govet         # go vet 静态分析
+    - ineffassign   # 检查无效的赋值
+    - staticcheck   # 静态分析
+    - typecheck     # 类型检查
+    - unused        # 检查未使用的代码
+    
+    # 代码风格
+    - gocyclo       # 检查圈复杂度
+    - gofmt         # 代码格式化
+    - goimports     # import 格式化
+    - misspell      # 拼写检查
+    - revive        # 代码风格检查
+    - unconvert     # 检查不必要的类型转换
+    - unparam       # 检查未使用的函数参数
+    
+    # 性能
+    - prealloc      # 检查可以预分配的 slice
+    
+    # Bugs
+    - asciicheck    # 检查非 ASCII 字符
+    - bodyclose     # 检查 HTTP 响应体是否关闭
+    - errorlint     # 错误处理检查
+    - nilerr        # 检查返回 nil error 的情况
+
+# linter 设置
+linters-settings:
+  # 圈复杂度检查
+  gocyclo:
+    # 最小圈复杂度（超过此值会报告）
+    min-complexity: 15
+    
+  # 静态检查
+  staticcheck:
+    checks: ["all"]
+    
+  # revive 配置
+  revive:
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+      
+  # gosec 安全检查
+  gosec:
+    excludes:
+      - G104  # 忽略未检查的错误（由 errcheck 处理）
+      - G307  # 忽略 defer 文件关闭检查
+      
+  # misspell 拼写检查
+  misspell:
+    locale: US
+    
+  # prealloc 预分配检查
+  prealloc:
+    # 报告简单循环中的预分配建议
+    simple: true
+    range-loops: true
+    # 对于容易发生 panic 的情况也报告
+    for-loops: false
+
+# 问题配置
+issues:
+  # 显示所有问题
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  
+  # 排除特定问题
+  exclude-rules:
+    # 测试文件中的规则放宽
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - govet
+        
+    # main 函数中的规则放宽
+    - path: cmd/
+      linters:
+        - gocyclo
+        
+  exclude-use-default: false
+
+# 性能配置
+performance:
+  # 缓存分析结果
+  fast: false
