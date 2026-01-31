@@ -1,3 +1,19 @@
+// Package cache 提供线程安全的内存缓存实现。
+//
+// 缓存特点：
+//   - 支持键值对存储
+//   - 支持过期时间 (TTL)
+//   - 自动清理过期条目
+//   - 线程安全（使用读写锁）
+//   - 支持通配符删除
+//
+// 使用示例：
+//
+//	cache := cache.NewCache()
+//	cache.Set("key", "value", 60) // 存储 60 秒
+//	value, found := cache.Get("key")
+//
+// 缓存会在后台定期清理过期条目，无需手动管理。
 package cache
 
 import (

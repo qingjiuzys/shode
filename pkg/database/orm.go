@@ -1,3 +1,44 @@
+// Package database 提供 ORM 封装和查询构建器。
+//
+// ORM 特点：
+//   - 简单易用的 CRUD 操作
+//   - 基于反射的模型元数据提取
+//   - 支持主键自动识别
+//   - 自动生成 SQL 语句
+//
+// 查询构建器特点：
+//   - 流式接口
+//   - 支持复杂条件（WHERE, IN, LIKE, BETWEEN）
+//   - 支持 JOIN, GROUP BY, HAVING
+//   - 支持排序和分页
+//
+// 事务支持：
+//   - ACID 事务
+//   - 自动回滚
+//   - 支持嵌套事务
+//
+// 支持的数据库：
+//   - PostgreSQL
+//   - MySQL
+//   - SQLite
+//
+// 使用示例：
+//
+//	orm, _ := database.OpenSQLite("./mydb.db")
+//
+//	// 创建
+//	user := &User{Name: "John", Email: "john@example.com"}
+//	orm.Create(ctx, user)
+//
+//	// 查询
+//	users, _ := orm.Find(ctx, &User{}, "age > $1", 18)
+//
+//	// 使用查询构建器
+//	results, _ := orm.QueryBuilder("users").
+//	    Where("age > $1", 18).
+//	    OrderBy("created_at DESC").
+//	    Limit(10).
+//	    All(ctx)
 package database
 
 import (

@@ -1,3 +1,34 @@
+// Package middleware 提供 HTTP 中间件框架。
+//
+// 中间件系统特点：
+//   - 基于责任链模式
+//   - 优先级排序执行（数字越小越先执行）
+//   - 支持跳过条件
+//   - 可中断执行链
+//
+// 内置中间件：
+//   - Recovery (优先级 10): Panic 恢复
+//   - RequestID (优先级 50): 请求追踪 ID
+//   - CORS (优先级 100): 跨域资源共享
+//   - RateLimit (优先级 200): 令牌桶限流
+//   - Logging (优先级 300): 请求/响应日志
+//
+// 使用示例：
+//
+//	mgr := middleware.NewManager()
+//	mgr.Use(middleware.NewRecoveryMiddleware())
+//	mgr.Use(middleware.NewCORSMiddleware())
+//
+//	handler := mgr.HandleFunc(ctx, w, r, finalHandler)
+//
+// 自定义中间件：
+//
+//	custom := middleware.NewBaseMiddleware("custom", 150, func(ctx, w, r, next) bool {
+//	    // 前置逻辑
+//	    next(ctx, w, r)
+//	    // 后置逻辑
+//	    return true
+//	})
 package middleware
 
 import (

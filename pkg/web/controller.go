@@ -56,19 +56,25 @@ func (cr *ControllerRegistry) RegisterRoutes(mux *http.ServeMux) {
 
 	for _, controller := range cr.controllers {
 		for _, route := range controller.Routes {
-			fullPath := controller.BasePath + route.Path
+			// Capture loop variables to avoid closure issues
+			route := route
+			basePath := controller.BasePath
+
+			fullPath := basePath + route.Path
 			if !strings.HasPrefix(fullPath, "/") {
 				fullPath = "/" + fullPath
 			}
 
-			handler := route.Handler
+			// Build handler with middlewares
+			var handler http.Handler = route.Handler
+
 			// Apply route-specific middlewares
 			if len(route.Middlewares) > 0 {
-				handler = Apply(http.HandlerFunc(handler), route.Middlewares...).ServeHTTP
+				handler = Apply(handler, route.Middlewares...)
 			}
 			// Apply controller-level middlewares
 			if len(controller.Middlewares) > 0 {
-				handler = Apply(http.HandlerFunc(handler), controller.Middlewares...).ServeHTTP
+				handler = Apply(handler, controller.Middlewares...)
 			}
 
 			mux.HandleFunc(fullPath, func(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +83,7 @@ func (cr *ControllerRegistry) RegisterRoutes(mux *http.ServeMux) {
 					http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 					return
 				}
-				handler(w, r)
+				handler.ServeHTTP(w, r)
 			})
 		}
 	}
