@@ -1,4 +1,4 @@
-// Package blockchain 提供区块链功能。
+// Package blockchain 提供区块链服务功能。
 package blockchain
 
 import (
@@ -11,716 +11,612 @@ import (
 	"time"
 )
 
-// Blockchain 区块链
-type Blockchain struct {
-	blocks       []*Block
-	transactions []*Transaction
-	pendingTxs   []*Transaction
-	difficulty   int
-	reward       float64
-	mu           sync.RWMutex
+// BlockchainEngine 区块链引擎
+type BlockchainEngine struct {
+	smartcontracts *SmartContractManager
+	tokens        *TokenManager
+	identity      *DIDManager
+	explorer      *BlockchainExplorer
+	bridge        *CrossChainBridge
+	networks      map[string]*BlockchainNetwork
+	mu            sync.RWMutex
 }
 
-// Block 区块
-type Block struct {
-	Index        int            `json:"index"`
-	Timestamp    time.Time      `json:"timestamp"`
-	Transactions []*Transaction `json:"transactions"`
-	PrevHash     string         `json:"prev_hash"`
-	Hash         string         `json:"hash"`
-	Nonce        int            `json:"nonce"`
+// NewBlockchainEngine 创建区块链引擎
+func NewBlockchainEngine() *BlockchainEngine {
+	return &BlockchainEngine{
+		smartcontracts: NewSmartContractManager(),
+		tokens:        NewTokenManager(),
+		identity:      NewDIDManager(),
+		explorer:      NewBlockchainExplorer(),
+		bridge:        NewCrossChainBridge(),
+		networks:      make(map[string]*BlockchainNetwork),
+	}
 }
 
-// Transaction 交易
-type Transaction struct {
-	ID        string                 `json:"id"`
-	Sender    string                 `json:"sender"`
-	Receiver  string                 `json:"receiver"`
-	Amount    float64                `json:"amount"`
-	Timestamp time.Time              `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
-	Signature string                 `json:"signature"`
-	Status    string                 `json:"status"`
+// DeployContract 部署智能合约
+func (be *BlockchainEngine) DeployContract(ctx context.Context, contract *SmartContract) (*ContractDeployment, error) {
+	return be.smartcontracts.Deploy(ctx, contract)
+}
+
+// MintToken 铸造代币
+func (be *BlockchainEngine) MintToken(ctx context.Context, token *Token, amount int64) (*TokenTransaction, error) {
+	return be.tokens.Mint(ctx, token, amount)
+}
+
+// CreateDID 创建去中心化身份
+func (be *BlockchainEngine) CreateDID(ctx context.Context, did *DID) (*DIDDocument, error) {
+	return be.identity.Create(ctx, did)
+}
+
+// ExploreBlock 探索区块
+func (be *BlockchainEngine) ExploreBlock(ctx context.Context, network string, height int64) (*BlockInfo, error) {
+	return be.explorer.GetBlock(ctx, network, height)
+}
+
+// BridgeTransfer 跨链桥接传输
+func (be *BlockchainEngine) BridgeTransfer(ctx context.Context, transfer *BridgeTransfer) (*BridgeTransaction, error) {
+	return be.bridge.Transfer(ctx, transfer)
+}
+
+// SmartContractManager 智能合约管理器
+type SmartContractManager struct {
+	contracts  map[string]*SmartContract
+	deployments map[string]*ContractDeployment
+	instances  map[string]*ContractInstance
+	mu         sync.RWMutex
 }
 
 // SmartContract 智能合约
 type SmartContract struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
-	Bytecode    []byte                 `json:"bytecode"`
+	Version     string                 `json:"version"`
+	Language    string                 `json:"language"` // "solidity", "rust", "vyper"
+	SourceCode  string                 `json:"source_code"`
+	ABI         json.RawMessage        `json:"abi"`
+	Bytecode    string                 `json:"bytecode"`
+	Compiler    string                 `json:"compiler"`
+	Optimized   bool                   `json:"optimized"`
+}
+
+// ContractDeployment 合约部署
+type ContractDeployment struct {
+	ContractID  string                 `json:"contract_id"`
+	Address     string                 `json:"address"`
+	Network     string                 `json:"network"`
+	TxHash      string                 `json:"tx_hash"`
+	BlockNumber int64                  `json:"block_number"`
+	GasUsed     int64                  `json:"gas_used"`
+	Deployer    string                 `json:"deployer"`
+	DeployedAt  time.Time              `json:"deployed_at"`
+}
+
+// ContractInstance 合约实例
+type ContractInstance struct {
+	Address     string                 `json:"address"`
+	ContractID  string                 `json:"contract_id"`
 	State       map[string]interface{} `json:"state"`
-	ABI         *ABI                   `json:"abi"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	Functions   []*FunctionDefinition  `json:"functions"`
+	Events      []*EventDefinition     `json:"events"`
 }
 
-// ABI 应用二进制接口
-type ABI struct {
-	Methods []ABIMethod `json:"methods"`
-	Events  []ABIEvent  `json:"events"`
+// FunctionDefinition 函数定义
+type FunctionDefinition struct {
+	Name     string                 `json:"name"`
+	Inputs   []Parameter            `json:"inputs"`
+	Outputs  []Parameter            `json:"outputs"`
+	Mutability string               `json:"mutability"` // "pure", "view", "nonpayable", "payable"
 }
 
-// ABIMethod ABI 方法
-type ABIMethod struct {
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Inputs     []ABIInput             `json:"inputs"`
-	Outputs    []ABIOutput            `json:"outputs"`
-	StateMutability bool             `json:"stateMutability"`
+// EventDefinition 事件定义
+type EventDefinition struct {
+	Name   string      `json:"name"`
+	Inputs []Parameter `json:"inputs"`
+	Anonymous bool     `json:"anonymous"`
 }
 
-// ABIInput ABI 输入
-type ABIInput struct {
+// Parameter 参数
+type Parameter struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
-}
-
-// ABIOutput ABI 输出
-type ABIOutput struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
-// ABIEvent ABI 事件
-type ABIEvent struct {
-	Name   string     `json:"name"`
-	Inputs []ABIInput `json:"inputs"`
-}
-
-// NewBlockchain 创建区块链
-func NewBlockchain() *Blockchain {
-	genesis := createGenesisBlock()
-	return &Blockchain{
-		blocks:     []*Block{genesis},
-		difficulty: 4,
-		reward:     10.0,
-	}
-}
-
-// createGenesisBlock 创世区块
-func createGenesisBlock() *Block {
-	return &Block{
-		Index:     0,
-		Timestamp: time.Now(),
-		PrevHash:  "0",
-		Hash:      calculateBlockHash(0, time.Now(), []*Transaction{}, "0", 0),
-	}
-}
-
-// AddTransaction 添加交易
-func (bc *Blockchain) AddTransaction(tx *Transaction) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	tx.ID = calculateTxHash(tx)
-	tx.Status = "pending"
-	tx.Timestamp = time.Now()
-
-	bc.pendingTxs = append(bc.pendingTxs, tx)
-
-	return nil
-}
-
-// Mine 挖矿
-func (bc *Blockchain) Mine(minerAddress string) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	// 选择交易
-	txs := bc.selectTransactions()
-
-	// 创建新区块
-	prevBlock := bc.blocks[len(bc.blocks)-1]
-	newBlock := &Block{
-		Index:        prevBlock.Index + 1,
-		Timestamp:    time.Now(),
-		Transactions: txs,
-		PrevHash:     prevBlock.Hash,
-	}
-
-	// 工作量证明
-	nonce := bc.proofOfWork(newBlock)
-
-	newBlock.Nonce = nonce
-	newBlock.Hash = calculateBlockHash(newBlock.Index, newBlock.Timestamp, txs, newBlock.PrevHash, nonce)
-
-	// 挖矿奖励
-	rewardTx := &Transaction{
-		Sender:   "0x0000000000000000000000000000000000000000",
-		Receiver: minerAddress,
-		Amount:   bc.reward,
-		Timestamp: time.Now(),
-	}
-	rewardTx.ID = calculateTxHash(rewardTx)
-	rewardTx.Status = "confirmed"
-
-	newBlock.Transactions = append([]*Transaction{rewardTx}, txs...)
-
-	bc.blocks = append(bc.blocks, newBlock)
-
-	// 清理待处理交易
-	bc.clearPendingTransactions(txs)
-
-	return nil
-}
-
-// selectTransactions 选择交易
-func (bc *Blockchain) selectTransactions() []*Transaction {
-	maxTxs := 10
-	if len(bc.pendingTxs) < maxTxs {
-		maxTxs = len(bc.pendingTxs)
-	}
-
-	selected := make([]*Transaction, maxTxs)
-	copy(selected, bc.pendingTxs[:maxTxs])
-
-	return selected
-}
-
-// clearPendingTransactions 清理待处理交易
-func (bc *Blockchain) clearPendingTransactions(txs []*Transaction) {
-	newPending := make([]*Transaction, 0)
-	txMap := make(map[string]bool)
-
-	for _, tx := range txs {
-		txMap[tx.ID] = true
-	}
-
-	for _, tx := range bc.pendingTxs {
-		if !txMap[tx.ID] {
-			newPending = append(newPending, tx)
-		}
-	}
-
-	bc.pendingTxs = newPending
-}
-
-// proofOfWork 工作量证明
-func (bc *Blockchain) proofOfWork(block *Block) int {
-	var hash string
-	var nonce int
-
-	target := fmt.Sprintf("%0"+bc.difficulty+"s", 0)
-
-	for {
-		hash = calculateBlockHash(block.Index, block.Timestamp, block.Transactions, block.PrevHash, nonce)
-		if hash[:len(target)] == target {
-			break
-		}
-		nonce++
-	}
-
-	return nonce
-}
-
-// GetBalance 获取余额
-func (bc *Blockchain) GetBalance(address string) float64 {
-	bc.mu.RLock()
-	defer bc.RUnlock()
-
-	balance := 0.0
-
-	for _, block := range bc.blocks {
-		for _, tx := range block.Transactions {
-			if tx.Sender == address {
-				balance -= tx.Amount
-			}
-			if tx.Receiver == address {
-				balance += tx.Amount
-			}
-		}
-	}
-
-	return balance
-}
-
-// GetBlock 获取区块
-func (bc *Blockchain) GetBlock(index int) (*Block, error) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	if index < 0 || index >= len(bc.blocks) {
-		return nil, fmt.Errorf("block not found: %d", index)
-	}
-
-	return bc.blocks[index], nil
-}
-
-// GetChainLength 获取链长度
-func (bc *Blockchain) GetChainLength() int {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	return len(bc.blocks)
-}
-
-// VerifyChain 验证链
-func (bc *Blockchain) VerifyChain() bool {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	for i := 1; i < len(bc.blocks); i++ {
-		current := bc.blocks[i]
-		prev := bc.blocks[i-1]
-
-		if current.PrevHash != prev.Hash {
-			return false
-		}
-
-		// 验证哈希
-		calculatedHash := calculateBlockHash(current.Index, current.Timestamp, current.Transactions, current.PrevHash, current.Nonce)
-		if calculatedHash != current.Hash {
-			return false
-		}
-	}
-
-	return true
-}
-
-// SmartContractManager 智能合约管理器
-type SmartContractManager struct {
-	contracts map[string]*SmartContract
-	mu        sync.RWMutex
 }
 
 // NewSmartContractManager 创建智能合约管理器
 func NewSmartContractManager() *SmartContractManager {
 	return &SmartContractManager{
-		contracts: make(map[string]*SmartContract),
+		contracts:  make(map[string]*SmartContract),
+		deployments: make(map[string]*ContractDeployment),
+		instances:  make(map[string]*ContractInstance),
 	}
 }
 
-// Deploy 部署合约
-func (scm *SmartContractManager) Deploy(name string, bytecode []byte, abi *ABI) (*SmartContract, error) {
+// Deploy 部署
+func (scm *SmartContractManager) Deploy(ctx context.Context, contract *SmartContract) (*ContractDeployment, error) {
 	scm.mu.Lock()
 	defer scm.mu.Unlock()
-
-	contract := &SmartContract{
-		ID:        generateContractID(),
-		Name:      name,
-		Bytecode:  bytecode,
-		State:     make(map[string]interface{}),
-		ABI:       abi,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
 
 	scm.contracts[contract.ID] = contract
 
-	return contract, nil
+	deployment := &ContractDeployment{
+		ContractID:  contract.ID,
+		Address:     generateAddress(),
+		Network:     "ethereum",
+		TxHash:      generateTxHash(),
+		BlockNumber: 15000000,
+		GasUsed:     2000000,
+		Deployer:    "0x" + generateRandomHex(40),
+		DeployedAt:  time.Now(),
+	}
+
+	scm.deployments[deployment.Address] = deployment
+
+	return deployment, nil
 }
 
-// Call 调用合约方法
-func (scm *SmartContractManager) Call(ctx context.Context, contractID, method string, args map[string]interface{}) (interface{}, error) {
+// Call 调用
+func (scm *SmartContractManager) Call(ctx context.Context, address, function string, params []interface{}) (interface{}, error) {
 	scm.mu.RLock()
 	defer scm.mu.RUnlock()
 
-	contract, exists := scm.contracts[contractID]
+	instance, exists := scm.instances[address]
 	if !exists {
-		return nil, fmt.Errorf("contract not found: %s", contractID)
+		return nil, fmt.Errorf("instance not found")
 	}
 
-	// 查找方法
-	var abimethod *ABIMethod
-	for _, m := range contract.ABI.Methods {
-		if m.Name == method {
-			abimethod = &m
-			break
-		}
-	}
-
-	if abimethod == nil {
-		return nil, fmt.Errorf("method not found: %s", method)
-	}
-
-	// 简化实现，返回固定值
-	return fmt.Sprintf("called %s on contract %s with %v", method, contract.Name, args), nil
+	// 简化实现
+	return map[string]interface{}{
+		"address":  address,
+		"function": function,
+		"result":   "success",
+		"state":    instance.State,
+	}, nil
 }
 
-// GetState 获取合约状态
-func (scm *SmartContractManager) GetState(contractID string) (map[string]interface{}, error) {
-	scm.mu.RLock()
-	defer scm.mu.RUnlock()
-
-	contract, exists := scm.contracts[contractID]
-	if !exists {
-		return nil, fmt.Errorf("contract not found: %s", contractID)
-	}
-
-	return contract.State, nil
+// TokenManager 代币管理器
+type TokenManager struct {
+	tokens       map[string]*Token
+	transactions map[string]*TokenTransaction
+	balances     map[string]map[string]int64 // token -> owner -> balance
+	mu           sync.RWMutex
 }
 
-// SetState 设置合约状态
-func (scm *SmartContractManager) SetState(contractID string, key string, value interface{}) error {
-	scm.mu.Lock()
-	defer scm.mu.Unlock()
-
-	contract, exists := scm.contracts[contractID]
-	if !exists {
-		return fmt.Errorf("contract not found: %s", contractID)
-	}
-
-	contract.State[key] = value
-	contract.UpdatedAt = time.Now()
-
-	return nil
-}
-
-// NFTManager NFT 管理器
-type NFTManager struct {
-	tokens map[string]*NFT
-	mu     sync.RWMutex
-}
-
-// NFT NFT
-type NFT struct {
-	TokenID     string `json:"token_id"`
-	ContractID   string `json:"contract_id"`
-	Owner       string `json:"owner"`
-	Metadata    *NFTMetadata `json:"metadata"`
-	CreatedAt   time.Time `json:"created_at"`
+// Token 代币
+type Token struct {
+	ID          string                 `json:"id"`
+	Type        string                 `json:"type"` // "erc20", "erc721", "erc1155"
+	Name        string                 `json:"name"`
+	Symbol      string                 `json:"symbol"`
+	Decimals    int                    `json:"decimals"`
+	TotalSupply int64                  `json:"total_supply"`
+	Owner       string                 `json:"owner"`
+	Metadata    map[string]interface{} `json:"metadata"`
 }
 
 // NFTMetadata NFT 元数据
 type NFTMetadata struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Image       string `json:"image"`
-	Attributes  map[string]string `json:"attributes"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Image       string   `json:"image"`
+	Attributes  []Attribute `json:"attributes"`
 }
 
-// NewNFTManager 创建 NFT 管理器
-func NewNFTManager() *NFTManager {
-	return &NFTManager{
-		tokens: make(map[string]*NFT),
+// Attribute 属性
+type Attribute struct {
+	TraitType string `json:"trait_type"`
+	Value     string `json:"value"`
+}
+
+// TokenTransaction 代币交易
+type TokenTransaction struct {
+	TxHash      string                 `json:"tx_hash"`
+	TokenID     string                 `json:"token_id"`
+	Type        string                 `json:"type"` // "mint", "transfer", "burn", "approve"
+	From        string                 `json:"from"`
+	To          string                 `json:"to"`
+	Amount      int64                  `json:"amount"`
+	TokenID721  string                 `json:"token_id_721,omitempty"`
+	Timestamp   time.Time              `json:"timestamp"`
+	BlockNumber int64                  `json:"block_number"`
+}
+
+// NewTokenManager 创建代币管理器
+func NewTokenManager() *TokenManager {
+	return &TokenManager{
+		tokens:       make(map[string]*Token),
+		transactions: make(map[string]*TokenTransaction),
+		balances:     make(map[string]map[string]int64),
 	}
 }
 
-// Mint 铸造 NFT
-func (nm *NFTManager) Mint(contractID, owner string, metadata *NFTMetadata) (*NFT, error) {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
+// Mint 铸造
+func (tm *TokenManager) Mint(ctx context.Context, token *Token, amount int64) (*TokenTransaction, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 
-	tokenID := generateNFTID()
+	tm.tokens[token.ID] = token
 
-	nft := &NFT{
-		TokenID:   tokenID,
-		ContractID: contractID,
-		Owner:     owner,
-		Metadata:  metadata,
-		CreatedAt: time.Now(),
+	if tm.balances[token.ID] == nil {
+		tm.balances[token.ID] = make(map[string]int64)
+	}
+	tm.balances[token.ID][token.Owner] = amount
+
+	tx := &TokenTransaction{
+		TxHash:      generateTxHash(),
+		TokenID:     token.ID,
+		Type:        "mint",
+		From:        "0x0000000000000000000000000000000000000000",
+		To:          token.Owner,
+		Amount:      amount,
+		Timestamp:   time.Now(),
+		BlockNumber: 15000000,
 	}
 
-	nm.tokens[tokenID] = nft
+	tm.transactions[tx.TxHash] = tx
 
-	return nft, nil
+	return tx, nil
 }
 
-// Transfer 转移 NFT
-func (nm *NFTManager) Transfer(tokenID, from, to string) error {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
+// Transfer 转账
+func (tm *TokenManager) Transfer(ctx context.Context, tokenID, from, to string, amount int64) (*TokenTransaction, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 
-	nft, exists := nm.tokens[tokenID]
+	if tm.balances[tokenID][from] < amount {
+		return nil, fmt.Errorf("insufficient balance")
+	}
+
+	tm.balances[tokenID][from] -= amount
+	tm.balances[tokenID][to] += amount
+
+	tx := &TokenTransaction{
+		TxHash:      generateTxHash(),
+		TokenID:     tokenID,
+		Type:        "transfer",
+		From:        from,
+		To:          to,
+		Amount:      amount,
+		Timestamp:   time.Now(),
+		BlockNumber: 15000001,
+	}
+
+	tm.transactions[tx.TxHash] = tx
+
+	return tx, nil
+}
+
+// GetBalance 获取余额
+func (tm *TokenManager) GetBalance(tokenID, owner string) (int64, error) {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	balance, exists := tm.balances[tokenID][owner]
 	if !exists {
-		return fmt.Errorf("NFT not found: %s", tokenID)
+		return 0, nil
 	}
 
-	if nft.Owner != from {
-		return fmt.Errorf("not owner of NFT: %s", tokenID)
-	}
-
-	nft.Owner = to
-
-	return nil
-}
-
-// GetToken 获取 NFT
-func (nm *NFTManager) GetToken(tokenID string) (*NFT, bool) {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-
-	token, exists := nm.tokens[tokenID]
-	return token, exists
+	return balance, nil
 }
 
 // DIDManager 去中心化身份管理器
 type DIDManager struct {
-	identities map[string]*DIDDocument
-	mu         sync.RWMutex
+	dids      map[string]*DID
+	documents map[string]*DIDDocument
+	verifiableCredentials map[string]*VerifiableCredential
+	mu        sync.RWMutex
+}
+
+// DID 去中心化身份
+type DID struct {
+	ID        string                 `json:"id"`
+	Method    string                 `json:"method"` // "ethereum", "solana", "polygon"
+	Controller string                `json:"controller"`
+	PublicKey  []byte                `json:"public_key"`
+	Metadata  map[string]interface{} `json:"metadata"`
 }
 
 // DIDDocument DID 文档
 type DIDDocument struct {
-	ID              string                 `json:"id"`
-	Context         string                 `json:"@context"`
-	PublicKey       []PublicKey           `json:"publicKey"`
-	Authentication  []AuthenticationMethod  `json:"authentication"`
-	Service         []Service              `json:"service"`
-	Created         time.Time              `json:"created"`
-	Updated         time.Time              `json:"updated"`
+	ID                 string                 `json:"id"`
+	Context            []string               `json:"@context"`
+	PublicKeys         []*VerificationMethod  `json:"publicKey"`
+	Authentication     []string               `json:"authentication"`
+	AssertionMethod    []string               `json:"assertionMethod"`
+	Service            []*Service             `json:"service"`
+	Created            time.Time              `json:"created"`
+	Updated            time.Time              `json:"updated"`
 }
 
-// PublicKey 公钥
-type PublicKey struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	PublicKey string `json:"publicKey"`
-}
-
-// AuthenticationMethod 认证方法
-type AuthenticationMethod struct {
-	Type          string `json:"type"`
-	PublicKeyID   string `json:"publicKeyID"`
+// VerificationMethod 验证方法
+type VerificationMethod struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"` // "EcdsaSecp256k1VerificationKey2019"
+	Controller   string `json:"controller"`
+	PublicKeyBase58 string `json:"publicKeyBase58"`
 }
 
 // Service 服务
 type Service struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	ServiceEndpoint string `json:"serviceEndpoint"`
+	ID              string                 `json:"id"`
+	Type            string                 `json:"type"`
+	ServiceEndpoint string                 `json:"serviceEndpoint"`
+}
+
+// VerifiableCredential 可验证凭证
+type VerifiableCredential struct {
+	ID                string                 `json:"id"`
+	Type              []string               `json:"type"`
+	Issuer            string                 `json:"issuer"`
+	IssuanceDate      time.Time              `json:"issuanceDate"`
+	ExpirationDate    time.Time              `json:"expirationDate"`
+	CredentialSubject map[string]interface{} `json:"credentialSubject"`
+	Proof             *Proof                 `json:"proof"`
+}
+
+// Proof 证明
+type Proof struct {
+	Type       string    `json:"type"`
+	Created    time.Time `json:"created"`
+	ProofPurpose string  `json:"proofPurpose"`
+	VerificationMethod string `json:"verificationMethod"`
+	JWT        string    `json:"jwt"`
 }
 
 // NewDIDManager 创建 DID 管理器
 func NewDIDManager() *DIDManager {
 	return &DIDManager{
-		identities: make(map[string]*DIDDocument),
+		dids:      make(map[string]*DID),
+		documents: make(map[string]*DIDDocument),
+		verifiableCredentials: make(map[string]*VerifiableCredential),
 	}
 }
 
-// Create 创建 DID
-func (dm *DIDManager) Create(did string, publicKey string) (*DIDDocument, error) {
+// Create 创建
+func (dm *DIDManager) Create(ctx context.Context, did *DID) (*DIDDocument, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	doc := &DIDDocument{
-		ID:        did,
-		Context:   "https://w3id.org/did/v1",
-		PublicKey: []PublicKey{
+	dm.dids[did.ID] = did
+
+	document := &DIDDocument{
+		ID:      did.ID,
+		Context: []string{"https://www.w3.org/ns/did/v1"},
+		PublicKeys: []*VerificationMethod{
 			{
-				ID:        did + "#keys-1",
-				Type:      "Secp256k1",
-				PublicKey: publicKey,
+				ID:              did.ID + "#keys-1",
+				Type:            "EcdsaSecp256k1VerificationKey2019",
+				Controller:      did.ID,
+				PublicKeyBase58: "H3C2AVvLMv6gmMNam3uVAjZpfkcJCwDwnZn6z3wXmqPV",
 			},
 		},
-		Authentication: []AuthenticationMethod{
-			{
-				Type:        "Secp256k1",
-				PublicKeyID: did + "#keys-1",
-			},
-		},
-		Created: time.Now(),
-		Updated: time.Now(),
+		Authentication:  []string{did.ID + "#keys-1"},
+		AssertionMethod: []string{did.ID + "#keys-1"},
+		Created:         time.Now(),
+		Updated:         time.Now(),
 	}
 
-	dm.identities[did] = doc
+	dm.documents[did.ID] = document
 
-	return doc, nil
+	return document, nil
 }
 
-// Resolve 解析 DID
-func (dm *DIDManager) Resolve(did string) (*DIDDocument, bool) {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
+// IssueCredential 颁发凭证
+func (dm *DIDManager) IssueCredential(ctx context.Context, did string, vc *VerifiableCredential) (*VerifiableCredential, error) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
 
-	doc, exists := dm.identities[did]
-	return doc, exists
+	vc.ID = generateVCID()
+	vc.Issuer = did
+
+	dm.verifiableCredentials[vc.ID] = vc
+
+	return vc, nil
 }
 
-// Verify 验证 DID
-func (dm *DIDManager) Verify(did string, signature, message string) (bool, error) {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
+// BlockchainExplorer 区块链浏览器
+type BlockchainExplorer struct {
+	blocks    map[int64]*BlockInfo
+	transactions map[string]*TransactionInfo
+	networks  map[string]*NetworkStats
+	mu        sync.RWMutex
+}
 
-	doc, exists := dm.identities[did]
+// BlockInfo 区块信息
+type BlockInfo struct {
+	Number           int64              `json:"number"`
+	Hash             string             `json:"hash"`
+	ParentHash       string             `json:"parent_hash"`
+	Timestamp        time.Time          `json:"timestamp"`
+	Transactions     []*TransactionInfo `json:"transactions"`
+	TransactionCount int                `json:"transaction_count"`
+	GasUsed          int64              `json:"gas_used"`
+	GasLimit         int64              `json:"gas_limit"`
+	Miner            string             `json:"miner"`
+	Size             int64              `json:"size"`
+}
+
+// TransactionInfo 交易信息
+type TransactionInfo struct {
+	Hash     string                 `json:"hash"`
+	From     string                 `json:"from"`
+	To       string                 `json:"to"`
+	Value    string                 `json:"value"`
+	Gas      int64                  `json:"gas"`
+	GasPrice string                 `json:"gas_price"`
+	Input    string                 `json:"input"`
+	Status   string                 `json:"status"`
+	BlockNumber int64                `json:"block_number"`
+}
+
+// NetworkStats 网络统计
+type NetworkStats struct {
+	Network     string    `json:"network"`
+	BlockHeight int64     `json:"block_height"`
+	Difficulty  float64   `json:"difficulty"`
+	HashRate    float64   `json:"hash_rate"`
+	TPS         float64   `json:"tps"`
+	TotalTransactions int64 `json:"total_transactions"`
+}
+
+// NewBlockchainExplorer 创建区块链浏览器
+func NewBlockchainExplorer() *BlockchainExplorer {
+	return &BlockchainExplorer{
+		blocks:      make(map[int64]*BlockInfo),
+		transactions: make(map[string]*TransactionInfo),
+		networks:    make(map[string]*NetworkStats),
+	}
+}
+
+// GetBlock 获取区块
+func (be *BlockchainExplorer) GetBlock(ctx context.Context, network string, height int64) (*BlockInfo, error) {
+	be.mu.RLock()
+	defer be.mu.RUnlock()
+
+	block, exists := be.blocks[height]
 	if !exists {
-		return false, fmt.Errorf("DID not found: %s", did)
+		// 返回示例区块
+		block = &BlockInfo{
+			Number:        height,
+			Hash:          generateBlockHash(height),
+			ParentHash:    generateBlockHash(height - 1),
+			Timestamp:     time.Now(),
+			Transactions:  make([]*TransactionInfo, 0),
+			GasUsed:       15000000,
+			GasLimit:      30000000,
+			Miner:         "0x" + generateRandomHex(40),
+			Size:          50000,
+		}
+		be.blocks[height] = block
 	}
 
-	// 简化实现，总是返回 true
-	return true, nil
+	return block, nil
 }
 
-// calculateBlockHash 计算区块哈希
-func calculateBlockHash(index int, timestamp time.Time, txs []*Transaction, prevHash string, nonce int) string {
-	data := fmt.Sprintf("%d%d%s%d", index, timestamp.UnixNano(), prevHash, nonce)
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash)
-}
+// GetTransaction 获取交易
+func (be *BlockchainExplorer) GetTransaction(ctx context.Context, txHash string) (*TransactionInfo, error) {
+	be.mu.RLock()
+	defer be.mu.RUnlock()
 
-// calculateTxHash 计算交易哈希
-func calculateTxHash(tx *Transaction) string {
-	data := fmt.Sprintf("%s%s%f%d", tx.Sender, tx.Receiver, tx.Amount, tx.Timestamp.UnixNano())
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash)[:16]
-}
-
-// generateContractID 生成合约 ID
-func generateContractID() string {
-	return fmt.Sprintf("0x%x", sha256.Sum256([]byte(fmt.Sprintf("%d", time.Now().UnixNano()))))
-}
-
-// generateNFTID 生成 NFT ID
-func generateNFTID() string {
-	return fmt.Sprintf("nft_%d", time.Now().UnixNano())
-}
-
-// LedgerData 链上数据存证
-type LedgerData struct {
-	ID        string                 `json:"id"`
-	Data      interface{}            `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
-	Hash      string                 `json:"hash"`
-	Signature string                 `json:"signature"`
-	StoreTime time.Time              `json:"store_time"`
-}
-
-// Ledger 链上账本
-type Ledger struct {
-	data  map[string]*LedgerData
-	blockchain *Blockchain
-	mu    sync.RWMutex
-}
-
-// NewLedger 创建账本
-func NewLedger(blockchain *Blockchain) *Ledger {
-	return &Ledger{
-		data:       make(map[string]*LedgerData),
-		blockchain: blockchain,
-	}
-}
-
-// Store 存储数据上链
-func (l *Ledger) Store(data interface{}) (*LedgerData, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	// 序列化数据
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-
-	hash := sha256.Sum256(bytes)
-	id := hex.EncodeToString(hash)[:16]
-
-	ledgerData := &LedgerData{
-		ID:        id,
-		Data:      data,
-		Timestamp: time.Now(),
-		Hash:      hex.EncodeToString(hash),
-		StoreTime: time.Now(),
-	}
-
-	l.data[id] = ledgerData
-
-	return ledgerData, nil
-}
-
-// Retrieve 检索数据
-func (l *Ledger) Retrieve(id string) (*LedgerData, bool) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	data, exists := l.data[id]
-	return data, exists
-}
-
-// Verify 验证数据
-func (l *Ledger) Verify(id string) (bool, error) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	data, exists := l.data[id]
+	tx, exists := be.transactions[txHash]
 	if !exists {
-		return false, fmt.Errorf("data not found: %s", id)
+		return nil, fmt.Errorf("transaction not found")
 	}
 
-	// 验证哈希
-	bytes, err := json.Marshal(data.Data)
-	if err != nil {
-		return false, err
+	return tx, nil
+}
+
+// CrossChainBridge 跨链桥接
+type CrossChainBridge struct {
+	bridges      map[string]*BridgeConfig
+	transactions map[string]*BridgeTransaction
+	locks        map[string]*LockRecord
+	mu           sync.RWMutex
+}
+
+// BridgeConfig 桥接配置
+type BridgeConfig struct {
+	ID           string                 `json:"id"`
+	SourceChain  string                 `json:"source_chain"`
+	DestChain    string                 `json:"dest_chain"`
+	Type         string                 `json:"type"` // "lock-and-mint", "burn-and-mint", "liquidity"
+	Validators   []string               `json:"validators"`
+	Threshold    int                    `json:"threshold"`
+	Fee          float64                `json:"fee"`
+}
+
+// BridgeTransfer 桥接传输
+type BridgeTransfer struct {
+	SourceChain string  `json:"source_chain"`
+	DestChain   string  `json:"dest_chain"`
+	Token       string  `json:"token"`
+	Amount      float64 `json:"amount"`
+	Sender      string  `json:"sender"`
+	Receiver    string  `json:"receiver"`
+}
+
+// BridgeTransaction 桥接交易
+type BridgeTransaction struct {
+	TxHash       string                 `json:"tx_hash"`
+	BridgeID     string                 `json:"bridge_id"`
+	Transfer     *BridgeTransfer        `json:"transfer"`
+	Status       string                 `json:"status"` // "pending", "confirmed", "completed", "failed"
+	SourceTxHash string                 `json:"source_tx_hash"`
+	DestTxHash   string                 `json:"dest_tx_hash"`
+	Timestamp    time.Time              `json:"timestamp"`
+}
+
+// LockRecord 锁定记录
+type LockRecord struct {
+	TxHash      string    `json:"tx_hash"`
+	Token       string    `json:"token"`
+	Amount      float64   `json:"amount"`
+	Owner       string    `json:"owner"`
+	LockTime    time.Time `json:"lock_time"`
+	UnlockTime  time.Time `json:"unlock_time,omitempty"`
+}
+
+// NewCrossChainBridge 创建跨链桥接
+func NewCrossChainBridge() *CrossChainBridge {
+	return &CrossChainBridge{
+		bridges:      make(map[string]*BridgeConfig),
+		transactions: make(map[string]*BridgeTransaction),
+		locks:        make(map[string]*LockRecord),
 	}
-
-	hash := sha256.Sum256(bytes)
-	calculatedHash := hex.EncodeToString(hash)
-
-	return calculatedHash == data.Hash, nil
 }
 
-// CryptoPayment 加密货币支付
-type CryptoPayment struct {
-	ID          string                 `json:"id"`
-	From        string                 `json:"from"`
-	To          string                 `json:"to"`
-	Amount      float64                `json:"amount"`
-	Currency    string                 `json:"currency"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Status      string                 `json:"status"`
-	TransactionHash string           `json:"transaction_hash"`
-	Fee         float64                `json:"fee"`
-	Metadata    map[string]interface{} `json:"metadata"`
-}
+// Transfer 传输
+func (ccb *CrossChainBridge) Transfer(ctx context.Context, transfer *BridgeTransfer) (*BridgeTransaction, error) {
+	ccb.mu.Lock()
+	defer ccb.mu.Unlock()
 
-// PaymentProcessor 支付处理器
-type PaymentProcessor struct {
-	payments map[string]*CryptoPayment
-	mu       sync.RWMutex
-}
-
-// NewPaymentProcessor 创建支付处理器
-func NewPaymentProcessor() *PaymentProcessor {
-	return &PaymentProcessor{
-		payments: make(map[string]*CryptoPayment),
-	}
-}
-
-// CreatePayment 创建支付
-func (pp *PaymentProcessor) CreatePayment(from, to string, amount float64, currency string) (*CryptoPayment, error) {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
-	payment := &CryptoPayment{
-		ID:        generatePaymentID(),
-		From:      from,
-		To:        to,
-		Amount:    amount,
-		Currency:  currency,
-		Timestamp: time.Now(),
+	tx := &BridgeTransaction{
+		TxHash:    generateTxHash(),
+		BridgeID:  transfer.SourceChain + "-" + transfer.DestChain,
+		Transfer:  transfer,
 		Status:    "pending",
+		Timestamp: time.Now(),
 	}
 
-	pp.payments[payment.ID] = payment
+	ccb.transactions[tx.TxHash] = tx
 
-	return payment, nil
+	return tx, nil
 }
 
-// ProcessPayment 处理支付
-func (pp *PaymentProcessor) ProcessPayment(paymentID string) error {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
-	payment, exists := pp.payments[paymentID]
-	if !exists {
-		return fmt.Errorf("payment not found: %s", paymentID)
-	}
-
-	// 简化实现，直接标记为完成
-	payment.Status = "completed"
-
-	return nil
+// BlockchainNetwork 区块链网络
+type BlockchainNetwork struct {
+	Name        string                 `json:"name"`
+	ChainID     int64                  `json:"chain_id"`
+	Type        string                 `json:"type"` // "mainnet", "testnet", "l2"
+	RPC         []string               `json:"rpc"`
+	BlockTime   int                    `json:"block_time"`
+	NativeToken string                 `json:"native_token"`
 }
 
-// GetPayment 获取支付
-func (pp *PaymentProcessor) GetPayment(paymentID string) (*CryptoPayment, bool) {
-	pp.mu.RLock()
-	defer pp.mu.RUnlock()
-
-	payment, exists := pp.payments[paymentID]
-	return payment, exists
+// generateAddress 生成地址
+func generateAddress() string {
+	return "0x" + generateRandomHex(40)
 }
 
-// generatePaymentID 生成支付 ID
-func generatePaymentID() string {
-	return fmt.Sprintf("pay_%d", time.Now().UnixNano())
+// generateTxHash 生成交易哈希
+func generateTxHash() string {
+	return "0x" + generateRandomHex(64)
+}
+
+// generateBlockHash 生成区块哈希
+func generateBlockHash(height int64) string {
+	data := fmt.Sprintf("block_%d_%d", height, time.Now().Unix())
+	hash := sha256.Sum256([]byte(data))
+	return "0x" + hex.EncodeToString(hash[:])
+}
+
+// generateVCID 生成 VC ID
+func generateVCID() string {
+	return fmt.Sprintf("vc_%d", time.Now().UnixNano())
+}
+
+// generateRandomHex 生成随机十六进制
+func generateRandomHex(length int) string {
+	data := fmt.Sprintf("%d_%s", time.Now().UnixNano(), "random"))
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])[:length]
 }
