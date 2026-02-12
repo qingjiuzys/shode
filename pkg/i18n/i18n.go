@@ -441,7 +441,7 @@ func mustLoadLocation(name string) *time.Location {
 
 // ConvertTimezone 转换时区
 func ConvertTimezone(t time.Time, from, to string) (time.Time, error) {
-	fromTz, exists := CommonTimezones[from]
+	_, exists := CommonTimezones[from]
 	if !exists {
 		return time.Time{}, fmt.Errorf("unknown timezone: %s", from)
 	}

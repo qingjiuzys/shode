@@ -10,13 +10,13 @@ import (
 
 // HolographicEngine 全息通信引擎
 type HolographicEngine struct {
-	projection  *HolographicProjection"
-	lightfield  *LightFieldEngine"
-	voxel       *VoxelRenderer"
-	compression *HolographicCompression"
-	transmission *RealtimeTransmission"
-	multiView   *MultiViewHolography"
-	meeting     *HolographicMeeting"
+	projection  *HolographicProjection
+	lightfield  *LightFieldEngine
+	voxel       *VoxelRenderer
+	compression *HolographicCompression
+	transmission *RealtimeTransmission
+	multiView   *MultiViewHolography
+	meeting     *HolographicMeeting
 	display     *HolographicDisplay
 	mu          sync.RWMutex
 }
@@ -77,9 +77,9 @@ func (he *HolographicEngine) Display(ctx context.Context, hologram *HologramData
 
 // HolographicProjection 全息投影
 type HolographicProjection struct {
-	projectors map[string]*Projector"
+	projectors map[string]*Projector
 	calibration *ProjectionCalibration
-	alignment   *AutoAlignment
+	alignment   *Alignment
 	mu          sync.RWMutex
 }
 
@@ -87,15 +87,15 @@ type HolographicProjection struct {
 type Projector struct {
 	ID          string                 `json:"id"`
 	Type        string                 `json:"type"` // "laser", "led", "plasma"
-	Resolution  *Resolution            `json:"resolution"`
+	Resolution  *DisplayResolution     `json:"resolution"`
 	Brightness  float64                `json:"brightness"` // lumens
 	ThrowRatio  float64                `json:"throw_ratio"`
 }
 
 // ProjectionCalibration 投影校准
 type ProjectionCalibration struct {
-	Keystone    *Correction            `json:"keystone"`
-	Geometric   *GeometricCorrection    `json:"geometric"`
+	Keystone    *DistortionCorrection  `json:"keystone"`
+	Geometric   *GeometricCorrection   `json:"geometric"`
 	Color       *ColorCorrection       `json:"color"`
 	Focus       *FocusCorrection       `json:"focus"`
 }
@@ -131,7 +131,7 @@ func NewHolographicProjection() *HolographicProjection {
 	return &HolographicProjection{
 		projectors:  make(map[string]*Projector),
 		calibration: &ProjectionCalibration{},
-		alignment:    &AutoAlignment{},
+		alignment:    &Alignment{},
 	}
 }
 
@@ -153,8 +153,8 @@ func (hp *HolographicProjection) Project(ctx context.Context, scene *Holographic
 
 // LightFieldEngine 光场引擎
 type LightFieldEngine struct {
-	cameras     map[string]*LightFieldCamera"
-	processing  *LightFieldProcessing"
+	cameras     map[string]*LightFieldCamera
+	processing  *LightFieldProcessing
 	rendering   *LightFieldRendering
 	mu          sync.RWMutex
 }
@@ -229,8 +229,8 @@ func (lfe *LightFieldEngine) Capture(ctx context.Context, config *CaptureConfig)
 
 // VoxelRenderer 体素渲染器
 type VoxelRenderer struct {
-	volumes     map[string]*VoxelVolume"
-	renderer    *RayMarchingRenderer"
+	volumes     map[string]*VoxelVolume
+	renderer    *RayMarchingRenderer
 	quality     *RenderingQuality
 	mu          sync.RWMutex
 }
@@ -283,7 +283,7 @@ func (vr *VoxelRenderer) Render(ctx context.Context, voxels []*Voxel) (*VoxelFra
 
 // HolographicCompression 全息压缩
 type HolographicCompression struct {
-	codecs      map[string]*CompressionCodec"
+	codecs      map[string]*CompressionCodec
 	quality     *CompressionQuality
 	metrics     *CompressionMetrics
 	mu          sync.RWMutex
@@ -338,8 +338,8 @@ func (hc *HolographicCompression) Compress(ctx context.Context, hologram *Hologr
 
 // RealtimeTransmission 实时传输
 type RealtimeTransmission struct {
-	streams     map[string]*TransmissionStream"
-	network     *HolographicNetwork"
+	streams     map[string]*TransmissionStream
+	network     *HolographicNetwork
 	qos         *QoSManagement
 	mu          sync.RWMutex
 }
@@ -389,8 +389,8 @@ func (rt *RealtimeTransmission) Transmit(ctx context.Context, data *HologramData
 
 // MultiViewHolography 多视角全息
 type MultiViewHolography struct {
-	cameras     []*HolographicCamera"
-	views       map[string]*HolographicView"
+	cameras     []*HolographicCamera
+	views       map[string]*HolographicView
 	synthesis   *ViewSynthesis
 	mu          sync.RWMutex
 }
@@ -431,8 +431,8 @@ func (mvh *MultiViewHolography) Generate(ctx context.Context, scene *Holographic
 
 // HolographicMeeting 全息会议
 type HolographicMeeting struct {
-	rooms       map[string]*MeetingRoom"
-	participants map[string]*Participant"
+	rooms       map[string]*MeetingRoom
+	participants map[string]*Participant
 	audio       *SpatialAudio
 	recording   *MeetingRecording
 	mu          sync.RWMutex
@@ -503,8 +503,8 @@ func (hm *HolographicMeeting) Host(ctx context.Context, config *MeetingConfig) (
 
 // HolographicDisplay 全息显示
 type HolographicDisplay struct {
-	displays    map[string]*DisplayDevice"
-	renderer    *DisplayRenderer"
+	displays    map[string]*DisplayDevice
+	renderer    *DisplayRenderer
 	calibration *DisplayCalibration
 	mu          sync.RWMutex
 }
@@ -547,3 +547,220 @@ func generateStreamID() string {
 func generateSessionID() string {
 	return fmt.Sprintf("session_%d", time.Now().UnixNano())
 }
+
+// Alignment 自动对齐
+type Alignment struct {
+	Enabled  bool    `json:"enabled"`
+	Accuracy float64 `json:"accuracy"`
+}
+
+// DisplayResolution 显示分辨率
+type DisplayResolution struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// DistortionCorrection 畸变校正
+type DistortionCorrection struct {
+	Barrel   float64 `json:"barrel"`
+	Pincush  float64 `json:"pincushion"`
+}
+
+// GeometricCorrection 几何校正
+type GeometricCorrection struct {
+	Horizontal float64 `json:"horizontal"`
+	Vertical   float64 `json:"vertical"`
+}
+
+// ColorCorrection 颜色校正
+type ColorCorrection struct {
+	RGB []float64 `json:"rgb"`
+}
+
+// FocusCorrection 焦点校正
+type FocusCorrection struct {
+	Auto bool `json:"auto"`
+	Position float64 `json:"position"`
+}
+
+
+// LightFieldProcessing 光场处理
+type LightFieldProcessing struct {
+	Enabled bool `json:"enabled"`
+	Quality float64 `json:"quality"`
+}
+
+// LightFieldRendering 光场渲染
+type LightFieldRendering struct {
+	Method string `json:"method"`
+	Depth  int `json:"depth"`
+}
+
+// Resolution 分辨率（别名）
+type Resolution = DisplayResolution
+
+// RayMarchingRenderer 光线行进渲染器
+type RayMarchingRenderer struct {
+	MaxSteps int `json:"max_steps"`
+	Epsilon float64 `json:"epsilon"`
+}
+
+
+// RenderingQuality 渲染质量
+type RenderingQuality struct {
+	AntiAliasing bool `json:"anti_aliasing"`
+	Shadows      bool `json:"shadows"`
+	Reflections  bool `json:"reflections"`
+}
+
+// Vector3 三维向量
+type Vector3 struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// Color 颜色
+type Color struct {
+	R float64 `json:"r"`
+	G float64 `json:"g"`
+	B float64 `json:"b"`
+	A float64 `json:"a"`
+}
+
+
+// CompressionQuality 压缩质量
+type CompressionQuality struct {
+	Level   int     `json:"level"`
+	Lossy   bool    `json:"lossy"`
+	Bitrate float64 `json:"bitrate"`
+}
+
+// CompressionMetrics 压缩指标
+type CompressionMetrics struct {
+	CompressionRatio float64 `json:"compression_ratio"`
+	Speed           float64 `json:"speed"`
+}
+
+// TransmissionNetwork 传输网络
+type TransmissionNetwork struct {
+	Bandwidth float64 `json:"bandwidth"`
+	Latency   float64 `json:"latency"`
+}
+
+// QoSManagement 服务质量管理
+type QoSManagement struct {
+	Priority  int `json:"priority"`
+	Guaranteed bool `json:"guaranteed"`
+}
+
+
+// HolographicCamera 全息相机
+type HolographicCamera struct {
+	ID       string `json:"id"`
+	Resolution DisplayResolution `json:"resolution"`
+	FPS      int `json:"fps"`
+}
+
+// ViewSynthesis 视角合成
+type ViewSynthesis struct {
+	Method  string `json:"method"`
+	Quality float64 `json:"quality"`
+}
+
+// Transform 变换
+type Transform struct {
+	Position *Vector3 `json:"position"`
+	Rotation *Vector3 `json:"rotation"`
+	Scale    *Vector3 `json:"scale"`
+}
+
+// SpatialAudio 空间音频
+type SpatialAudio struct {
+	Channels   int `json:"channels"`
+	Surround   bool `json:"surround"`
+}
+
+
+// Geometry 几何体
+type Geometry struct {
+	Vertices  []Vector3 `json:"vertices"`
+	Normals   []Vector3 `json:"normals"`
+	Indices   []int `json:"indices"`
+}
+
+// HolographicMaterial 全息材质
+type HolographicMaterial struct {
+	Color Color `json:"color"`
+	Opacity float64 `json:"opacity"`
+}
+
+// MeetingRecording 会议录制
+type MeetingRecording struct {
+	Duration time.Duration `json:"duration"`
+	Size     int64 `json:"size"`
+}
+
+// VirtualEnvironment 虚拟环境
+type VirtualEnvironment struct {
+	Objects []Geometry `json:"objects"`
+	Lighting bool `json:"lighting"`
+}
+
+
+// HolographicLighting 全息照明
+type HolographicLighting struct {
+	Intensity float64 `json:"intensity"`
+	Color     Color `json:"color"`
+}
+
+// Environment 环境
+type Environment struct {
+	Ambient Color `json:"ambient"`
+}
+
+// HolographicNetwork 全息网络
+type HolographicNetwork struct {
+	Bandwidth float64 `json:"bandwidth"`
+	Latency   float64 `json:"latency"`
+}
+
+
+// Position3D 三维位置
+type Position3D struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// AvatarAppearance 虚拟形象外观
+type AvatarAppearance struct {
+	Model  string `json:"model"`
+	Texture string `json:"texture"`
+}
+
+// AvatarAnimation 虚拟形象动画
+type AvatarAnimation struct {
+	Name   string `json:"name"`
+	Frames int `json:"frames"`
+}
+
+
+// VoiceCharacteristics 语音特征
+type VoiceCharacteristics struct {
+	Pitch  float64 `json:"pitch"`
+	Tone   string `json:"tone"`
+}
+
+// DisplayRenderer 显示渲染器
+type DisplayRenderer struct {
+	Method string `json:"method"`
+	Quality int `json:"quality"`
+}
+
+// DisplayCalibration 显示校准
+type DisplayCalibration struct {
+	Brightness float64 `json:"brightness"`
+	Contrast   float64 `json:"contrast"`
+}
+

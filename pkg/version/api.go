@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // VersioningStrategy 版本策略
@@ -148,13 +149,13 @@ func (vm *VersionManager) GetVersion(version string) (*APIVersion, error) {
 }
 
 // DeprecateVersion 弃用版本
-func (vm *VersionManager) DeprecateVersion(version, unsetAt string) error {
+func (vm *VersionManager) DeprecateVersion(version, sunsetAt string) error {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
 	if apiVer, exists := vm.versions[version]; exists {
 		apiVer.Deprecated = true
-		apiVer.UnsetAt = unsetAt
+		apiVer.SunsetAt = sunsetAt
 		return nil
 	}
 

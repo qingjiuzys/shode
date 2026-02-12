@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1566,11 +1567,11 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		if err != nil {
 			return "", err
 		}
-		jsonResult, err := result.ToJSON()
+		jsonBytes, err := json.Marshal(result)
 		if err != nil {
 			return "", err
 		}
-		return jsonResult, nil
+		return string(jsonBytes), nil
 	case "QueryRowDB":
 		if len(args) == 0 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,
@@ -1581,11 +1582,11 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		if err != nil {
 			return "", err
 		}
-		jsonResult, err := result.ToJSON()
+		jsonBytes, err := json.Marshal(result)
 		if err != nil {
 			return "", err
 		}
-		return jsonResult, nil
+		return string(jsonBytes), nil
 	case "ExecDB":
 		if len(args) == 0 {
 			return "", errors.NewExecutionError(errors.ErrInvalidInput,
@@ -1596,11 +1597,11 @@ func (ee *ExecutionEngine) executeStdLibFunction(funcName string, args []string)
 		if err != nil {
 			return "", err
 		}
-		jsonResult, err := result.ToJSON()
+		jsonBytes, err := json.Marshal(result)
 		if err != nil {
 			return "", err
 		}
-		return jsonResult, nil
+		return string(jsonBytes), nil
 	// IoC functions
 	case "RegisterBean":
 		if len(args) < 3 {

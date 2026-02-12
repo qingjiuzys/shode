@@ -3,7 +3,6 @@ package quantumml
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -78,8 +77,8 @@ func (qml *QuantumMLEngine) MapFeatures(ctx context.Context, features []float64)
 
 // QuantumNeuralNetwork 量子神经网络
 type QuantumNeuralNetwork struct {
-	layers      map[string]*QuantumLayer"
-	weights     map[string]*QuantumParameter"
+	layers      map[string]*QuantumLayer
+	weights     map[string]*QuantumParameter
 	activations map[string]*QuantumActivation
 	mu          sync.RWMutex
 }
@@ -155,8 +154,8 @@ func (qnn *QuantumNeuralNetwork) Train(ctx context.Context, data *TrainingData) 
 
 // QuantumSVM 量子支持向量机
 type QuantumSVM struct {
-	kernel      *QuantumKernel"
-	hyperplanes map[string]*Hyperplane"
+	kernel      *QuantumKernel
+	hyperplanes map[string]*Hyperplane
 	mu          sync.RWMutex
 }
 
@@ -214,7 +213,7 @@ func (qsvm *QuantumSVM) Train(ctx context.Context, data *ClassificationData) (*Q
 
 // QuantumPCA 量子主成分分析
 type QuantumPCA struct {
-	components  []*PrincipalComponent"
+	components  []*PrincipalComponent
 	variance    []float64
 	mu          sync.RWMutex
 }
@@ -275,7 +274,7 @@ func (qpca *QuantumPCA) Fit(ctx context.Context, data *Dataset) (*QPCAResult, er
 
 // QuantumKMeans 量子 K-Means
 type QuantumKMeans struct {
-	centroids   []*QuantumCentroid"
+	centroids   []*QuantumCentroid
 	assignments []int
 	distance    *QuantumDistance
 	mu          sync.RWMutex
@@ -341,7 +340,7 @@ func (qkm *QuantumKMeans) Fit(ctx context.Context, data *Dataset, k int) (*QKMea
 type VariationalQuantumCircuit struct {
 	ansatz      *Ansatz
 	cost        *CostFunction
-	optimizer   *QuantumOptimizer"
+	optimizer   *QuantumOptimizer
 	parameters  map[string]*VariationalParameter
 	mu          sync.RWMutex
 }
@@ -410,7 +409,7 @@ func (vqc *VariationalQuantumCircuit) Optimize(ctx context.Context, circuit *Ans
 // QuantumReinforcementLearning 量子强化学习
 type QuantumReinforcementLearning struct {
 	qfunction   *QFunction
-	policy      *QuantumPolicy"
+	policy      *QuantumPolicy
 	buffer      *ExperienceReplay
 	mu          sync.RWMutex
 }
@@ -484,7 +483,7 @@ func (qrl *QuantumReinforcementLearning) Train(ctx context.Context, env *QMLEnvi
 
 // QuantumGenerativeModel 量子生成模型
 type QuantumGenerativeModel struct {
-	circuit     *GenerativeCircuit"
+	circuit     *GenerativeCircuit
 	loss        *Divergence
 	sampler     *QuantumSampler
 	mu          sync.RWMutex
@@ -550,8 +549,8 @@ func (qgen *QuantumGenerativeModel) Train(ctx context.Context, data *Distributio
 
 // QuantumFeatureMapping 量子特征映射
 type QuantumFeatureMapping struct {
-	encoding    *FeatureEncoding"
-	kernel      *FeatureKernel"
+	encoding    *FeatureEncoding
+	kernel      *FeatureKernel
 	circuit     *EncodingCircuit
 	mu          sync.RWMutex
 }
@@ -605,3 +604,9 @@ func (qfm *QuantumFeatureMapping) Map(ctx context.Context, features []float64) (
 
 	return state, nil
 }
+
+// QuantumGate 量子门
+type QuantumGate struct {
+	Name string `json:"name"`
+}
+

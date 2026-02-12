@@ -173,7 +173,7 @@ func (nsm *NetworkSlicingManager) Modify(ctx context.Context, instanceID string,
 	nsm.mu.Lock()
 	defer nsm.mu.Unlock()
 
-	instance, exists := nsm.instances[instanceID]
+	_, exists := nsm.instances[instanceID]
 	if !exists {
 		return fmt.Errorf("instance not found")
 	}

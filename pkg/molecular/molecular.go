@@ -4,7 +4,6 @@ package molecular
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 )
@@ -13,11 +12,11 @@ import (
 type MolecularEngine struct {
 	dna         *DNACalculator
 	folding     *ProteinFolder
-	dynamics    *MolecularDynamics"
-	design      *DrugDesigner"
+	dynamics    *MolecularDynamics
+	design      *DrugDesigner
 	storage     *MolecularStorage
-	circuits    *BioCircuits"
-	enzymes     *EnzymeCalculator"
+	circuits    *BioCircuits
+	enzymes     *EnzymeCalculator
 	assembly    *SelfAssembly
 	mu          sync.RWMutex
 }
@@ -63,9 +62,9 @@ func (me *MolecularEngine) StoreData(ctx context.Context, data []byte) (*Storage
 
 // DNACalculator DNA 计算器
 type DNACalculator struct {
-	sequences   map[string]*DNASequence"
-	gates       map[string]*DNAGate"
-	circuits    map[string]*DNACircuit"
+	sequences   map[string]*DNASequence
+	gates       map[string]*DNAGate
+	circuits    map[string]*DNACircuit
 	mu          sync.RWMutex
 }
 
@@ -119,8 +118,8 @@ func (dc *DNACalculator) Compute(ctx context.Context, input *DNAInput) (*DNAOutp
 
 // ProteinFolder 蛋白质折叠器
 type ProteinFolder struct {
-	models      map[string]*FoldingModel"
-	predictions map[string]*FoldingPrediction"
+	models      map[string]*FoldingModel
+	predictions map[string]*FoldingPrediction
 	mu          sync.RWMutex
 }
 
@@ -177,8 +176,8 @@ func (pf *ProteinFolder) Fold(ctx context.Context, sequence *AminoSequence) (*Fo
 
 // MolecularDynamics 分子动力学
 type MolecularDynamics struct {
-	simulations map[string]*MDSimulation"
-	forcefields map[string]*ForceField"
+	simulations map[string]*MDSimulation
+	forcefields map[string]*ForceField
 	integrators map[string]*Integrator
 	mu          sync.RWMutex
 }
@@ -225,8 +224,8 @@ func (md *MolecularDynamics) Simulate(ctx context.Context, system *MolecularSyst
 
 // DrugDesigner 药物设计器
 type DrugDesigner struct {
-	molecules   map[string]*DrugMolecule"
-	targets     map[string]*TargetProtein"
+	molecules   map[string]*DrugMolecule
+	targets     map[string]*TargetProtein
 	docking     *MolecularDocking
 	scoring     *ScoringFunction
 	mu          sync.RWMutex
@@ -277,7 +276,7 @@ func (dd *DrugDesigner) Design(ctx context.Context, target *TargetProtein) (*Dru
 
 // MolecularStorage 分子存储
 type MolecularStorage struct {
-	encodings   map[string]*DNACoding"
+	encodings   map[string]*DNACoding
 	density     map[string]float64     `json:"density"`
 	retrieval   *DataRetrieval
 	mu          sync.RWMutex
@@ -317,24 +316,24 @@ func (ms *MolecularStorage) Store(ctx context.Context, data []byte) (*StorageRes
 
 // BioCircuits 生物电路
 type BioCircuits struct {
-	gates       map[string]*BioGate"
-	circuits    map[string]*GeneticCircuit"
+	gates       map[string]*BioGate
+	circuits    map[string]*GeneticCircuit
 	simulation  *CircuitSimulation
 	mu          sync.RWMutex
 }
 
 // EnzymeCalculator 酶计算器
 type EnzymeCalculator struct {
-	enzymes     map[string]*Enzyme"
-	reactions   map[string]*Reaction"
+	enzymes     map[string]*Enzyme
+	reactions   map[string]*Reaction
 	kinetics    *ReactionKinetics
 	mu          sync.RWMutex
 }
 
 // SelfAssembly 自组装
 type SelfAssembly struct {
-	structures  map[string]*NanoStructure"
-	assembly    map[string]*AssemblyProcess"
+	structures  map[string]*NanoStructure
+	assembly    map[string]*AssemblyProcess
 	mu          sync.RWMutex
 }
 
@@ -364,6 +363,41 @@ func NewSelfAssembly() *SelfAssembly {
 	}
 }
 
+// Enzyme 酶
+type Enzyme struct {
+	Name string `json:"name"`
+}
+
+// Reaction 反应
+type Reaction struct {
+	Equation string `json:"equation"`
+}
+
+// ReactionKinetics 反应动力学
+type ReactionKinetics struct {
+	Rate float64 `json:"rate"`
+}
+
+// BioGate 生物门
+type BioGate struct {
+	Type string `json:"type"`
+}
+
+// GeneticCircuit 基因电路
+type GeneticCircuit struct {
+	Gates []string `json:"gates"`
+}
+
+// CircuitSimulation 电路仿真
+type CircuitSimulation struct {
+	TimeStep float64 `json:"time_step"`
+}
+
+// ScoringFunction 打分函数
+type ScoringFunction struct {
+	Name string `json:"name"`
+}
+
 // 辅助函数
 func generateID() string {
 	return fmt.Sprintf("mol_%d", time.Now().UnixNano())
@@ -377,4 +411,144 @@ func encodeToDNA(data []byte) string {
 		result[i*2+1] = encoding[(b>>2)&0x03]
 	}
 	return string(result)
+}
+
+// MolecularDesign 分子设计
+type MolecularDesign struct {
+	Method string `json:"method"`
+}
+
+// MolecularCircuits 分子电路
+type MolecularCircuits struct {
+	Gates int `json:"gates"`
+}
+
+// MolecularEnzymes 分子酶
+type MolecularEnzymes struct {
+	Active bool `json:"active"`
+}
+
+// DNAGate DNA门
+type DNAGate struct {
+	Sequence string `json:"sequence"`
+}
+
+// DNACircuit DNA电路
+type DNACircuit struct {
+	Gates []DNAGate `json:"gates"`
+}
+
+// SecondaryStructure 二级结构
+type SecondaryStructure struct {
+	Type string `json:"type"`
+}
+
+// FoldingModel 折叠模型
+type FoldingModel struct {
+	Name string `json:"name"`
+}
+
+// FoldingPrediction 折叠预测
+type FoldingPrediction struct {
+	Confidence float64 `json:"confidence"`
+}
+
+// MDSimulation MD模拟
+type MDSimulation struct {
+	Duration time.Duration `json:"duration"`
+}
+
+// ForceField 力场
+type ForceField struct {
+	Type string `json:"type"`
+}
+
+// Integrator 积分器
+type Integrator struct {
+	Step float64 `json:"step"`
+}
+// Vector3 三维向量
+type Vector3 struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// Atom 原子
+type Atom struct {
+	Element string `json:"element"`
+	Position Vector3 `json:"position"`
+}
+
+// Bond 键
+type Bond struct {
+	Atom1 int `json:"atom1"`
+	Atom2 int `json:"atom2"`
+	Type string `json:"type"`
+}
+
+// Angle 角度
+type Angle struct {
+	Atom1 int `json:"atom1"`
+	Atom2 int `json:"atom2"`
+	Atom3 int `json:"atom3"`
+	Value float64 `json:"value"`
+}
+// Dihedral 二面角
+type Dihedral struct {
+	Atom1 int `json:"atom1"`
+	Atom2 int `json:"atom2"`
+	Atom3 int `json:"atom3"`
+	Atom4 int `json:"atom4"`
+	Value float64 `json:"value"`
+}
+
+// Frame 框架
+type Frame struct {
+	Number int `json:"number"`
+}
+// EnergyProfile 能量曲线
+type EnergyProfile struct {
+	Values []float64 `json:"values"`
+}
+
+// MolecularDocking 分子对接
+type MolecularDocking struct {
+	Score string `json:"core"`
+}
+
+// BindingSite 结合位点
+type BindingSite struct {
+	Position Vector3 `json:"position"`
+}
+
+// MolecularStructure 分子结构
+type MolecularStructure struct {
+	Atoms []Atom `json:"atoms"`
+	Bonds []Bond `json:"bonds"`
+}
+
+// MolecularProperties 分子属性
+type MolecularProperties struct {
+	Mass float64 `json:"mass"`
+}
+
+// DNACoding DNA编码
+type DNACoding struct {
+	Sequence string `json:"sequence"`
+}
+
+// DataRetrieval 数据检索
+type DataRetrieval struct {
+	Query string `json:"query"`
+}
+
+// NanoStructure 纳米结构
+type NanoStructure struct {
+	Type string `json:"type"`
+}
+
+// AssemblyProcess 组装过程
+type AssemblyProcess struct {
+	Steps int `json:"steps"`
 }

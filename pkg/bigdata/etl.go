@@ -3,15 +3,14 @@ package bigdata
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
 	"time"
 )
 
-// ELPipeline ETL 流水线
-type ELPipeline struct {
+// ETLPipeline ETL 流水线
+type ETLPipeline struct {
 	extractors   []*Extractor
 	transformers []*Transformer
 	loaders      []*Loader
@@ -237,12 +236,16 @@ func (bp *BatchProcessor) worker(id int) {
 			}
 
 			ctx := context.Background()
-			result := bp.workerFunc(ctx, items)
+			typedItems, ok := items.([]interface{})
+			if !ok {
+				continue
+			}
+			result, err := bp.workerFunc(ctx, typedItems)
+			if err != nil {
+				result = &BatchResult{Success: false}
+			}
 
 			bp.resultChan <- result
-
-		case <-bp.queue:
-			return
 		}
 	}
 }

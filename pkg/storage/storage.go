@@ -5,9 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 )
@@ -15,12 +13,12 @@ import (
 // StorageEngine 存储引擎
 type StorageEngine struct {
 	objectStores map[string]*ObjectStore
-	fileSystems  map[string]*FileSystemManager}
-	cdns        map[string]*CDNIntegration
-	quotas      map[string]*StorageQuota
+	fileSystems  map[string]*FileSystemManager
+	cdns         map[string]*CDNIntegration
+	quotas       map[string]*StorageQuota
 	compression  *CompressionManager
 	encryption   *StorageEncryption
-	mu          sync.RWMutex
+	mu           sync.RWMutex
 }
 
 // NewStorageEngine 创建存储引擎
@@ -42,7 +40,7 @@ func (se *StorageEngine) PutObject(ctx context.Context, bucket, key string, data
 		return fmt.Errorf("bucket not found: %s", bucket)
 	}
 
-	return store.Put(ctx, key, data)
+	return store.Put(ctx, bucket, key, data)
 }
 
 // GetObject 获取对象
@@ -52,7 +50,7 @@ func (se *StorageEngine) GetObject(ctx context.Context, bucket, key string) ([]b
 		return nil, fmt.Errorf("bucket not found: %s", bucket)
 	}
 
-	return store.Get(ctx, key)
+	return store.Get(ctx, bucket, key)
 }
 
 // GeneratePresignedURL 生成预签名URL
@@ -62,7 +60,7 @@ func (se *StorageEngine) GeneratePresignedURL(ctx context.Context, bucket, key s
 		return "", fmt.Errorf("bucket not found: %s", bucket)
 	}
 
-	return store.GeneratePresignedURL(ctx, key, ttl)
+	return store.GeneratePresignedURL(ctx, bucket, key, ttl)
 }
 
 // UploadMultipart 分片上传
@@ -72,7 +70,7 @@ func (se *StorageEngine) UploadMultipart(ctx context.Context, bucket, key string
 		return fmt.Errorf("bucket not found: %s", bucket)
 	}
 
-	return store.MultipartUpload(ctx, key, parts)
+	return store.MultipartUpload(ctx, bucket, key, parts)
 }
 
 // ObjectStore 对象存储
@@ -128,7 +126,7 @@ func (os *ObjectStore) CreateBucket(name, region string, quota int64) {
 		Objects:   make(map[string]*Object),
 	}
 
-	os.buckets[name] = bucket
+	os.Buckets[name] = bucket
 }
 
 // Put 上传
@@ -136,7 +134,7 @@ func (os *ObjectStore) Put(ctx context.Context, bucketName, key string, data []b
 	os.mu.Lock()
 	defer os.mu.Unlock()
 
-	bucket, exists := os.buckets[bucketName]
+	bucket, exists := os.Buckets[bucketName]
 	if !exists {
 		return fmt.Errorf("bucket not found: %s", bucketName)
 	}
@@ -165,7 +163,7 @@ func (os *ObjectStore) Get(ctx context.Context, bucketName, key string) ([]byte,
 	os.mu.RLock()
 	defer os.mu.RUnlock()
 
-	bucket, exists := os.buckets[bucketName]
+	bucket, exists := os.Buckets[bucketName]
 	if !exists {
 		return nil, fmt.Errorf("bucket not found: %s", bucketName)
 	}
@@ -206,13 +204,13 @@ func (os *ObjectStore) MultipartUpload(ctx context.Context, bucketName, key stri
 // FileSystemManager 文件系统管理器
 type FileSystemManager struct {
 	root     string
-	files    map[string]*FileInfo
+	files    map[string]*StorageFileInfo
 	dirs     map[string]*DirInfo
 	mu       sync.RWMutex
 }
 
-// FileInfo 文件信息
-type FileInfo struct {
+// StorageFileInfo 文件信息
+type StorageFileInfo struct {
 	Name       string       `json:"name"`
 	Path       string       `json:"path"`
 	Size       int64        `json:"size"`
@@ -226,7 +224,7 @@ type FileInfo struct {
 type DirInfo struct {
 	Name     string     `json:"name"`
 	Path     string     `json:"path"`
-	Files    []*FileInfo `json:"files"`
+	Files    []*StorageFileInfo `json:"files"`
 	SubDirs  []*DirInfo  `json:"subdirs"`
 }
 
@@ -234,7 +232,7 @@ type DirInfo struct {
 func NewFileSystemManager(root string) *FileSystemManager {
 	return &FileSystemManager{
 		root:  root,
-		files: make(map[string]*FileInfo),
+		files: make(map[string]*StorageFileInfo),
 		dirs:  make(map[string]*DirInfo),
 	}
 }
@@ -248,7 +246,7 @@ func (fsm *FileSystemManager) CreateFile(path string, data []byte) error {
 	hash := md5.Sum(data)
 	checksum := hex.EncodeToString(hash[:])
 
-	file := &FileInfo{
+	file := &StorageFileInfo{
 		Name:     getFileName(path),
 		Path:     path,
 		Size:     int64(len(data)),
@@ -287,11 +285,11 @@ func (fsm *FileSystemManager) DeleteFile(path string) error {
 }
 
 // ListFiles 列出文件
-func (fsm *FileSystemManager) ListFiles(dir string) []*FileInfo {
+func (fsm *FileSystemManager) ListFiles(dir string) []*StorageFileInfo {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
 
-	files := make([]*FileInfo, 0)
+	files := make([]*StorageFileInfo, 0)
 
 	for _, file := range fsm.files {
 		if isInDir(file.Path, dir) {
@@ -472,9 +470,9 @@ func (cm *CompressionManager) Decompress(data []byte, algorithm string) ([]byte,
 
 // StorageEncryption 存储加密
 type StorageEncryption struct {
-	keys    map[string]*EncryptionKey
-	default string
-	mu      sync.RWMutex
+	keys         map[string]*EncryptionKey
+	defaultKeyID string
+	mu           sync.RWMutex
 }
 
 // EncryptionKey 加密密钥

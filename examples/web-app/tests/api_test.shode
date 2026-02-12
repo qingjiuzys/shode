@@ -1,0 +1,219 @@
+# API 测试用例
+
+import { assert, assertEquals, assertContains } from "testing"
+
+# 配置
+BASE_URL = "http://localhost:8080"
+
+# 辅助函数
+http_get = func(path) {
+    return http.request({
+        method: "GET",
+        url: BASE_URL + path
+    })
+}
+
+http_post = func(path, data) {
+    return http.request({
+        method: "POST",
+        url: BASE_URL + path,
+        headers: {"Content-Type": "application/json"},
+        body: json.stringify(data)
+    })
+}
+
+http_put = func(path, data, token) {
+    headers = {"Content-Type": "application/json"}
+    if token != null {
+        headers["Authorization"] = "Bearer " + token
+    }
+    return http.request({
+        method: "PUT",
+        url: BASE_URL + path,
+        headers: headers,
+        body: json.stringify(data)
+    })
+}
+
+http_delete = func(path, token) {
+    return http.request({
+        method: "DELETE",
+        url: BASE_URL + path,
+        headers: {"Authorization": "Bearer " + token}
+    })
+}
+
+# 测试：健康检查
+test("health check", func() {
+    response = http_get("/health")
+
+    assertEquals(response.status, 200)
+    assert(response.body != null)
+    assertEquals(response.body.status, "ok")
+})
+
+# 测试：用户注册
+test("user registration", func() {
+    timestamp = time.now().unix()
+    data = {
+        username: "testuser_" + timestamp,
+        email: "test_" + timestamp + "@example.com",
+        password: "password123"
+    }
+
+    response = http_post("/api/v1/users/register", data)
+
+    assertEquals(response.status, 201)
+    assert(response.body.message == "注册成功")
+    assert(response.body.token != null)
+    assert(response.body.user.id != null)
+})
+
+# 测试：重复注册
+test("duplicate registration", func() {
+    data = {
+        username: "admin",
+        email: "admin@example.com",
+        password: "password123"
+    }
+
+    response = http_post("/api/v1/users/register", data)
+
+    assertEquals(response.status, 409)
+    assertContains(response.body.error, "已存在")
+})
+
+# 测试：用户登录
+test("user login", func() {
+    data = {
+        username: "admin",
+        password: "admin123"
+    }
+
+    response = http_post("/api/v1/users/login", data)
+
+    assertEquals(response.status, 200)
+    assert(response.body.message == "登录成功")
+    assert(response.body.token != null)
+
+    # 保存 token 供后续测试使用
+    set_var("auth_token", response.body.token)
+})
+
+# 测试：错误密码登录
+test("login with wrong password", func() {
+    data = {
+        username: "admin",
+        password: "wrongpassword"
+    }
+
+    response = http_post("/api/v1/users/login", data)
+
+    assertEquals(response.status, 401)
+    assertContains(response.body.error, "错误")
+})
+
+# 测试：获取用户信息
+test("get user profile", func() {
+    token = get_var("auth_token")
+
+    response = http_get("/api/v1/users/profile")
+    response.headers["Authorization"] = "Bearer " + token
+
+    assertEquals(response.status, 200)
+    assert(response.body.id != null)
+    assert(response.body.username != null)
+})
+
+# 测试：未认证访问
+test("unauthorized access", func() {
+    response = http_get("/api/v1/users/profile")
+
+    assertEquals(response.status, 401)
+    assertContains(response.body.error, "认证")
+})
+
+# 测试：获取文章列表
+test("get articles list", func() {
+    response = http_get("/api/v1/articles?page=1&limit=10")
+
+    assertEquals(response.status, 200)
+    assert(response.body.articles != null)
+    assert(len(response.body.articles) >= 0)
+    assert(response.body.pagination != null)
+})
+
+# 测试：创建文章
+test("create article", func() {
+    token = get_var("auth_token")
+
+    timestamp = time.now().unix()
+    data = {
+        title: "测试文章 " + timestamp,
+        content: "这是测试文章的内容..." + timestamp
+    }
+
+    response = http_post("/api/v1/articles", data)
+    response.headers["Authorization"] = "Bearer " + token
+
+    assertEquals(response.status, 201)
+    assert(response.body.message == "创建成功")
+    assert(response.body.article_id != null)
+
+    # 保存文章 ID 供后续测试使用
+    set_var("article_id", response.body.article_id)
+})
+
+# 测试：获取文章详情
+test("get article detail", func() {
+    response = http_get("/api/v1/articles/1")
+
+    assertEquals(response.status, 200)
+    assert(response.body.id != null)
+    assert(response.body.title != null)
+})
+
+# 测试：更新文章
+test("update article", func() {
+    token = get_var("auth_token")
+    article_id = get_var("article_id") || 1
+
+    data = {
+        title: "更新后的标题"
+    }
+
+    response = http_put("/api/v1/articles/" + article_id, data, token)
+
+    assertEquals(response.status, 200)
+    assert(response.body.message == "更新成功")
+})
+
+# 测试：获取统计信息
+test("get stats", func() {
+    token = get_var("auth_token")
+
+    response = http_get("/api/v1/stats")
+    response.headers["Authorization"] = "Bearer " + token
+
+    assertEquals(response.status, 200)
+    assert(response.body.users != null)
+    assert(response.body.articles != null)
+})
+
+# 测试：性能指标
+test("metrics endpoint", func() {
+    response = http_get("/metrics")
+
+    assertEquals(response.status, 200)
+    assert(response.body.http_requests_total != null)
+})
+
+# 测试：404 处理
+test("404 not found", func() {
+    response = http_get("/api/v1/nonexistent")
+
+    assertEquals(response.status, 404)
+    assertContains(response.body.error, "未找到")
+})
+
+print("所有测试完成！")

@@ -2,7 +2,6 @@
 package alert
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"

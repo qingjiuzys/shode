@@ -3,7 +3,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -59,7 +58,8 @@ func (we *WorkflowEngine) Execute(ctx context.Context, workflowID string, input 
 	we.executions[execution.ID] = execution
 
 	// 执行 DAG
-	return execution, we.scheduler.Execute(ctx, workflow, execution)
+	_, err := we.scheduler.Execute(ctx, workflow, execution)
+	return execution, err
 }
 
 // Workflow 工作流

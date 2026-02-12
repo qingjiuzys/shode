@@ -3,7 +3,6 @@ package edgeplus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -98,7 +97,7 @@ func (epe *EdgePlusEngine) ExecuteFunction(ctx context.Context, functionName str
 
 // RouteTraffic 路由流量
 func (epe *EdgePlusEngine) RouteTraffic(ctx context.Context, request *EdgeRequest) (*EdgeLocation, error) {
-	return e.router.Route(ctx, request)
+	return epe.router.Route(ctx, request)
 }
 
 // CacheData 缓存数据

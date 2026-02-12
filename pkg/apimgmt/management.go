@@ -3,7 +3,6 @@ package apimgmt
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -216,8 +215,8 @@ func NewQuotaManager() *QuotaManager {
 
 // Check 检查
 func (qm *QuotaManager) Check(ctx context.Context, apiKey, endpoint string) (bool, error) {
-	qm.mu.RLock()
-	defer qm.RUnlock()
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
 
 	key := apiKey + ":" + endpoint
 	quota, exists := qm.quotas[key]
@@ -393,7 +392,7 @@ type TestResponse struct {
 // TestResult 测试结果
 type TestResult struct {
 	SuiteID   string           `json:"suite_id"`
-	Passed    bool             `json:"passed"`
+	Success   bool             `json:"success"`
 	Total     int              `json:"total"`
 	Passed    int              `json:"passed"`
 	Failed    int              `json:"failed"`
@@ -446,7 +445,7 @@ func (at *APITesting) Run(ctx context.Context, suiteID string) (*TestResult, err
 		result.Passed++
 	}
 
-	result.Passed = result.Passed == result.Total
+	result.Success = result.Passed == result.Total
 
 	return result, nil
 }

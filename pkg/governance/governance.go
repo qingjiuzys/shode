@@ -2,7 +2,6 @@
 package governance
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -66,7 +65,7 @@ func (rl *RateLimiter) Allow(service string) (bool, error) {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
 
-	rule, exists := rl.limits[service]
+	_, exists := rl.limits[service]
 	if !exists {
 		return true, nil // 无限制
 	}
@@ -349,7 +348,7 @@ func (i *Isolation) Check(ruleName, key string) (bool, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
-	rule, exists := i.rules[ruleName]
+	_, exists := i.rules[ruleName]
 	if !exists {
 		return true, nil // 无限制
 	}
@@ -810,7 +809,7 @@ func (hc *HealthChecker) Check(name string) (bool, error) {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
-	check, exists := hc.checks[name]
+	_, exists := hc.checks[name]
 	if !exists {
 		return false, fmt.Errorf("health check not found: %s", name)
 	}

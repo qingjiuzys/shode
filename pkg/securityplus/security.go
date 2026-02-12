@@ -10,8 +10,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"sync"
@@ -803,13 +801,13 @@ func (em *EncryptionManager) Decrypt(ctx context.Context, keyID string, cipherte
 func GenerateToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b, b)
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // Hash 哈希
 func Hash(data string) string {
 	hash := sha256.Sum256([]byte(data))
-	return base64.URLEncoding.EncodeToString(hash[:], hash[:])
+	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
 // generateSessionID 生成会话 ID
@@ -821,7 +819,7 @@ func generateSessionID() string {
 func generateToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b, b)
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // generateKeyID 生成密钥 ID

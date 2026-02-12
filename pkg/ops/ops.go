@@ -3,8 +3,8 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -604,7 +604,7 @@ func (dr *DisasterRecovery) Restore(ctx context.Context, backupID, target string
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
 
-	backup, exists := dr.backups[backupID]
+	_, exists := dr.backups[backupID]
 	if !exists {
 		return nil, fmt.Errorf("backup not found: %s", backupID)
 	}
@@ -661,4 +661,9 @@ func generateUpdateID() string {
 // generateRestoreID 生成恢复 ID
 func generateRestoreID() string {
 	return fmt.Sprintf("restore_%d", time.Now().UnixNano())
+}
+
+// generateBackupID 生成备份ID
+func generateBackupID() string {
+	return fmt.Sprintf("backup_%d", time.Now().UnixNano())
 }

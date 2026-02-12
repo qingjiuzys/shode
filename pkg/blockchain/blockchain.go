@@ -616,7 +616,7 @@ func generateVCID() string {
 
 // generateRandomHex 生成随机十六进制
 func generateRandomHex(length int) string {
-	data := fmt.Sprintf("%d_%s", time.Now().UnixNano(), "random"))
+	data := fmt.Sprintf("%d_%s", time.Now().UnixNano(), "random")
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])[:length]
 }

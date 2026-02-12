@@ -43,7 +43,7 @@ func (sce *ServerContainerEngine) Invoke(ctx context.Context, containerName stri
 
 // Scale 扩缩容
 func (sce *ServerContainerEngine) Scale(ctx context.Context, containerName string, replicas int) error {
-	returnsce.scaler.Scale(ctx, containerName, replicas)
+	return sce.scaler.Scale(ctx, containerName, replicas)
 }
 
 // ContainerRuntime 容器运行时

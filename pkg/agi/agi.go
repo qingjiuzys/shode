@@ -78,9 +78,9 @@ func (ae *AGIEngine) Align(ctx context.Context, model *Model, preferences []stri
 
 // MultimodalLLM 多模态大语言模型
 type MultimodalLLM struct {
-	models      map[string]*LLMModel"
+	models      map[string]*LLMModel
 	generators  map[string]*ContentGenerator
-	embeddings  map[string]*MultimodalEmbedding"
+	embeddings  map[string]*MultimodalEmbedding
 	mu          sync.RWMutex
 }
 
@@ -202,10 +202,10 @@ func (mllm *MultimodalLLM) Generate(ctx context.Context, prompt *MultimodalPromp
 
 // AutonomousAgentManager 自主智能体管理器
 type AutonomousAgentManager struct {
-	agents      map[string]*Agent"
-	instances   map[string]*AgentInstance"
-	memories    map[string]*AgentMemory"
-	tools       map[string]*AgentTool"
+	agents      map[string]*Agent
+	instances   map[string]*AgentInstance
+	memories    map[string]*AgentMemory
+	tools       map[string]*AgentTool
 	mu          sync.RWMutex
 }
 
@@ -325,9 +325,9 @@ func (aam *AutonomousAgentManager) Create(ctx context.Context, agent *Agent) (*A
 
 // KnowledgeDistillation 知识蒸馏
 type KnowledgeDistillation struct {
-	teachers    map[string]*Model"
-	students    map[string]*Model"
-	sessions    map[string]*DistillationSession"
+	teachers    map[string]*Model
+	students    map[string]*Model
+	sessions    map[string]*DistillationSession
 	mu          sync.RWMutex
 }
 
@@ -410,11 +410,11 @@ func (kd *KnowledgeDistillation) Distill(ctx context.Context, teacher, student *
 
 // MetaLearning 元学习
 type MetaLearning struct {
-	 algorithms  map[string]*MetaLearningAlgorithm"
-	learners     map[string]*MetaLearner"
-	tasks        map[string]*LearningTask"
-	results      map[string]*MetaLearningResult
-	mu           sync.RWMutex
+	algorithms  map[string]*MetaLearningAlgorithm
+	learners    map[string]*MetaLearner
+	tasks       map[string]*LearningTask
+	results     map[string]*MetaLearningResult
+	mu          sync.RWMutex
 }
 
 // MetaLearningAlgorithm 元学习算法
@@ -491,9 +491,9 @@ func (ml *MetaLearning) Learn(ctx context.Context, tasks []*LearningTask) (*Meta
 
 // FederatedLearning 联邦学习
 type FederatedLearning struct {
-	clients     map[string]*FederatedClient"
-	server      *FederatedServer"
-	rounds      map[int]*FederatedRound"
+	clients     map[string]*FederatedClient
+	server      *FederatedServer
+	rounds      map[int]*FederatedRound
 	aggregation map[string]*AggregationStrategy
 	mu          sync.RWMutex
 }
@@ -585,11 +585,11 @@ func (fl *FederatedLearning) Train(ctx context.Context, round int) (*FederatedRe
 
 // ReinforcementLearning 强化学习
 type ReinforcementLearning struct {
-	agents      map[string]*RLAgent
-	environments map[string]*Environment"
-	policies    map[string]*Policy"
-	buffers     map[string]*ExperienceBuffer"
-	mu          sync.RWMutex
+	agents       map[string]*RLAgent
+	environments map[string]*Environment
+	policies     map[string]*Policy
+	buffers      map[string]*ExperienceBuffer
+	mu           sync.RWMutex
 }
 
 // RLAgent 强化学习智能体
@@ -699,8 +699,8 @@ func (rl *ReinforcementLearning) Train(ctx context.Context, env *Environment) (*
 // ContinualLearning 持续学习
 type ContinualLearning struct {
 	learner     *ContinualLearner
-	strategies  map[string]*ContinualStrategy"
-	memory      *EpisodicMemory"
+	strategies  map[string]*ContinualStrategy
+	memory      *EpisodicMemory
 	evaluation  *ContinualEvaluation
 	mu          sync.RWMutex
 }
@@ -768,7 +768,7 @@ type Episode struct {
 
 // ContinualEvaluation 持续评估
 type ContinualEvaluation struct {
-	Metrics     map[string]*ContinualMetric"
+	Metrics     map[string]*ContinualMetric
 	Baseline    float64                `json:"baseline"`
 	Forgetting  float64                `json:"forgetting"`
 }
@@ -801,9 +801,9 @@ func (cl *ContinualLearning) Learn(ctx context.Context, task *LearningTask) erro
 
 // AIAlignment AI 对齐
 type AIAlignment struct {
-	methods     map[string]*AlignmentMethod"
-	preferences map[string]*HumanPreference"
-	feedback    map[string]*FeedbackData"
+	methods     map[string]*AlignmentMethod
+	preferences map[string]*HumanPreference
+	feedback    map[string]*FeedbackData
 	ratings     map[string]*SafetyRating
 	mu          sync.RWMutex
 }

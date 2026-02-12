@@ -74,6 +74,13 @@ type SpanEndConfig struct {
 // EventOption 事件选项
 type EventOption func(*EventConfig)
 
+// WithEventAttributes 添加事件属性
+func WithEventAttributes(attributes map[string]interface{}) EventOption {
+	return func(ec *EventConfig) {
+		ec.Attributes = attributes
+	}
+}
+
 // EventConfig 事件配置
 type EventConfig struct {
 	Attributes map[string]interface{}
@@ -191,7 +198,7 @@ type memorySpan struct {
 }
 
 // End 结束跨度
-func (ms *memorySpan) End(opts ...SpanOption) {
+func (ms *memorySpan) End(opts ...SpanEndOption) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
@@ -251,7 +258,7 @@ func (ms *memorySpan) RecordError(err error) {
 		Message: err.Error(),
 	}
 
-	ms.AddEvent("error", WithAttributes(map[string]interface{}{
+	ms.AddEvent("error", WithEventAttributes(map[string]interface{}{
 		"error.message": err.Error(),
 		"error.type":    fmt.Sprintf("%T", err),
 	}))

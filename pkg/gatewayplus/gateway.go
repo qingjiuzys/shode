@@ -3,7 +3,6 @@ package gatewayplus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -237,7 +236,7 @@ func (avm *APIVersionManager) RegisterVersion(api, version string) {
 		Status:  "active",
 	}
 
-	avm[api+":"+version] = info
+	avm.versions[api+":"+version] = info
 }
 
 // APIDocumentor API文档生成器

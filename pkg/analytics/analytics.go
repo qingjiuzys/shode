@@ -3,7 +3,6 @@ package analytics
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -216,6 +215,14 @@ type RealtimeAnalyzer struct {
 	mu        sync.RWMutex
 }
 
+// StreamAggregator 流聚合器
+type StreamAggregator struct {
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"` // "count", "sum", "avg", "percentile"
+	Field      string                 `json:"field"`
+	Window     time.Duration          `json:"window"`
+}
+
 // AnalyticsStream 分析流
 type AnalyticsStream struct {
 	ID         string                 `json:"id"`
@@ -259,7 +266,7 @@ func (ra *RealtimeAnalyzer) Process(ctx context.Context, streamID string, event 
 	ra.mu.RLock()
 	defer ra.mu.RUnlock()
 
-	stream, exists := ra.streams[streamID]
+	_, exists := ra.streams[streamID]
 	if !exists {
 		return nil, fmt.Errorf("stream not found: %s", streamID)
 	}

@@ -363,7 +363,7 @@ type Reduce struct {
 	upstream  Stream
 	initial   interface{}
 	reducer   func(acc, value interface{}) interface{}
-	result    interface
+	result    interface{}
 }
 
 // NewReduce 创建归约
@@ -526,6 +526,28 @@ type filteredStream struct {
 	predicate func(interface{}) bool
 }
 
+// Next 获取下一个元素
+func (fs *filteredStream) Next(ctx context.Context) (interface{}, error) {
+	for {
+		data, err := fs.upstream.Next(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if data == nil {
+			return nil, nil
+		}
+
+		if fs.predicate(data) {
+			return data, nil
+		}
+	}
+}
+
+// Close 关闭流
+func (fs *filteredStream) Close() error {
+	return fs.upstream.Close()
+}
+
 // Batch 批处理
 type Batch struct {
 	upstream Stream
@@ -578,6 +600,28 @@ type partitionStream struct {
 	upstream  Stream
 	partition int
 	keyFunc   func(interface{}) int
+}
+
+// Next 获取下一个元素
+func (ps *partitionStream) Next(ctx context.Context) (interface{}, error) {
+	for {
+		data, err := ps.upstream.Next(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if data == nil {
+			return nil, nil
+		}
+
+		if ps.keyFunc(data) == ps.partition {
+			return data, nil
+		}
+	}
+}
+
+// Close 关闭流
+func (ps *partitionStream) Close() error {
+	return ps.upstream.Close()
 }
 
 // Union 联合

@@ -592,10 +592,17 @@ type Transaction struct {
 	UserID       string                 `json:"user_id"`
 	Type         string                 `json:"type"`
 	Amount       float64                `json:"amount"`
-	Location     *Location              `json:"location"`
+	Location     *GeoLocation           `json:"location"`
 	Device       string                 `json:"device"`
 	Timestamp    time.Time              `json:"timestamp"`
 	Attributes   map[string]interface{} `json:"attributes"`
+}
+
+// GeoLocation 地理位置点
+type GeoLocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Altitude  float64 `json:"altitude"`
 }
 
 // FraudProfile 欺诈画像

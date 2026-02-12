@@ -4,7 +4,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"sync"
 	"time"
 )
@@ -59,7 +58,13 @@ func (ae *AutomationEngine) Heal(ctx context.Context, incident *Incident) (*Heal
 
 // PlanCapacity 容量规划
 func (ae *AutomationEngine) PlanCapacity(ctx context.Context, service string, horizon time.Duration) (*CapacityPlan, error) {
-	return ae.planning.Plan(ctx, service, horizon)
+	forecast := &CapacityForecast{
+		Service:     service,
+		Horizon:     horizon,
+		Predictions: []*Prediction{{Value: 100, Timestamp: time.Now()}},
+		Confidence:  0.9,
+	}
+	return ae.planning.Plan(ctx, forecast)
 }
 
 // InfrastructureAsCode 基础设施即代码

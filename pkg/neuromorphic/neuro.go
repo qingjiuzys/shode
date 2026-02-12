@@ -4,7 +4,7 @@ package neuromorphic
 import (
 	"context"
 	"fmt"
-	"math"
+	"math/rand"
 	"sync"
 	"time"
 )

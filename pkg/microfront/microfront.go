@@ -3,7 +3,6 @@ package microfront
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -402,7 +401,7 @@ func (c *Communicator) Emit(event string, data interface{}) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	listeners, exists := c.listeners[event]
+	_, exists := c.listeners[event]
 	if !exists {
 		return nil
 	}

@@ -4,7 +4,6 @@ package biocompute
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 )
@@ -14,9 +13,9 @@ type BiocomputeEngine struct {
 	swarm      *SwarmIntelligence
 	aco        *AntColonyOptimization
 	ps         *ParticleSwarm
-	immune      *ArtificialImmuneSystem"
-	evolution  *EvolutionaryComputation"
-	ca         *CellularAutomaton"
+	immune     *ArtificialImmuneSystem
+	evolution  *EvolutionaryComputation
+	ca         *CellularAutomaton
 	life       *ArtificialLife
 	ecosystem  *EcosystemSimulation
 	mu         sync.RWMutex
@@ -68,8 +67,8 @@ func (be *BiocomputeEngine) SimulateLife(ctx context.Context, world *LifeWorld) 
 
 // SwarmIntelligence 群体智能
 type SwarmIntelligence struct {
-	agents     []*SwarmAgent"
-	behaviors  map[string]*SwarmBehavior"
+	agents     []*SwarmAgent
+	behaviors  map[string]*SwarmBehavior
 	communication *SwarmCommunication
 	mu         sync.RWMutex
 }
@@ -125,7 +124,7 @@ func (si *SwarmIntelligence) Optimize(ctx context.Context, problem *OptProblem) 
 
 // AntColonyOptimization 蚁群优化
 type AntColonyOptimization struct {
-	ants       []*Ant"
+	ants       []*Ant
 	pheromone  map[string]float64     `json:"pheromone"`
 	evaporation float64               `json:"evaporation"`
 	mu         sync.RWMutex
@@ -210,9 +209,9 @@ func NewParticleSwarm() *ParticleSwarm {
 
 // ArtificialImmuneSystem 人工免疫系统
 type ArtificialImmuneSystem struct {
-	antibodies  []*Antibody"
-	antigens    []*Antigen"
-	detectors   []*Detector"
+	antibodies  []*Antibody
+	antigens    []*Antigen
+	detectors   []*Detector
 	mu          sync.RWMutex
 }
 
@@ -416,8 +415,8 @@ func (al *ArtificialLife) Simulate(ctx context.Context, world *LifeWorld) (*Life
 // EcosystemSimulation 生态模拟
 type EcosystemSimulation struct {
 	species    []*Species
-	trophic    *TrophicNetwork"
-	climate    *ClimateSystem"
+	trophic    *TrophicNetwork
+	climate    *ClimateSystem
 	mu         sync.RWMutex
 }
 

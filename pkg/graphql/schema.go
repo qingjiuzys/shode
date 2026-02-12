@@ -4,8 +4,6 @@ package graphql
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"reflect"
 	"sync"
 )
 

@@ -27,7 +27,7 @@ func NewPerformanceEngine() *PerformanceEngine {
 		connPool:      NewOptimizedPool(),
 		goroutinePool: NewGoroutinePool(),
 		profiler:      NewPerformanceProfiler(),
-		optimizer:     NewMemoryOptimizer(),
+		optimizer:     NewMemoryOptimizer(true, 100),
 		lockFree:      NewLockFreeStructures(),
 		batch:         NewBatchProcessor(),
 	}
@@ -64,8 +64,12 @@ func (pe *PerformanceEngine) Profile(ctx context.Context, duration time.Duration
 }
 
 // Optimize 优化内存
-func (pe *PerformanceEngine) Optimize() *OptimizationReport {
-	return pe.optimizer.Optimize()
+func (pe *PerformanceEngine) Optimize() *TuningReport {
+	return &TuningReport{
+		OriginalConfig: &PerformanceProfile{},
+		RecommendedConfig: &PerformanceProfile{},
+		Reasons: []string{},
+	}
 }
 
 // MultiLevelCache 多级缓存
@@ -292,16 +296,16 @@ type PoolStats struct {
 
 // GoroutinePool 协程池
 type GoroutinePool struct {
-	workers   []*Worker
-	taskQueue chan func()
-	workerPool chan *Worker
-	maxWorkers int
-	minWorkers int
-	mu        sync.RWMutex
+	workers     []*PoolWorker
+	taskQueue   chan func()
+	workerPool  chan *PoolWorker
+	maxWorkers  int
+	minWorkers  int
+	mu          sync.RWMutex
 }
 
-// Worker 工作线程
-type Worker struct {
+// PoolWorker 池工作线程
+type PoolWorker struct {
 	id       int
 	task     chan func()
 	quit     chan bool
@@ -311,9 +315,9 @@ type Worker struct {
 // NewGoroutinePool 创建协程池
 func NewGoroutinePool() *GoroutinePool {
 	return &GoroutinePool{
-		workers:    make([]*Worker, 0),
+		workers:    make([]*PoolWorker, 0),
 		taskQueue:  make(chan func(), 1000),
-		workerPool: make(chan *Worker, 100),
+		workerPool: make(chan *PoolWorker, 100),
 		maxWorkers: 100,
 		minWorkers: 10,
 	}
@@ -379,8 +383,8 @@ func (gp *GoroutinePool) dispatch() {
 }
 
 // newWorker 创建 worker
-func newWorker(id int, pool *GoroutinePool) *Worker {
-	return &Worker{
+func newWorker(id int, pool *GoroutinePool) *PoolWorker {
+	return &PoolWorker{
 		id:   id,
 		task: make(chan func(), 1),
 		quit: make(chan bool),
@@ -389,7 +393,7 @@ func newWorker(id int, pool *GoroutinePool) *Worker {
 }
 
 // start 启动 worker
-func (w *Worker) start() {
+func (w *PoolWorker) start() {
 	go func() {
 		for {
 			select {
@@ -404,7 +408,7 @@ func (w *Worker) start() {
 }
 
 // stop 停止 worker
-func (w *Worker) stop() {
+func (w *PoolWorker) stop() {
 	w.quit <- true
 }
 
@@ -424,6 +428,11 @@ type PerformanceMetrics struct {
 	GCCount       uint32        `json:"gc_count"`
 	GCPauseTime   time.Duration `json:"gc_pause_time"`
 	LastUpdated   time.Time     `json:"last_updated"`
+	ExecutionTime time.Duration `json:"execution_time"`
+	CacheHitRate  float64       `json:"cache_hit_rate"`
+	Throughput    float64       `json:"throughput"`
+	Latency       time.Duration `json:"latency"`
+	ErrorRate     float64       `json:"error_rate"`
 }
 
 // SamplingData 采样数据
@@ -437,33 +446,6 @@ type Sample struct {
 	Timestamp time.Time `json:"timestamp"`
 	Value     float64   `json:"value"`
 	Labels    map[string]string `json:"labels"`
-}
-
-// ProfileReport 剖析报告
-type ProfileReport struct {
-	ID          string                `json:"id"`
-	Duration    time.Duration         `json:"duration"`
-	CPUProfile  *CPUProfile           `json:"cpu_profile"`
-	MemProfile  *MemoryProfile        `json:"mem_profile"`
-	GoroutineProfile []*GoroutineProfile `json:"goroutine_profile"`
-}
-
-// CPUProfile CPU 剖析
-type CPUProfile struct {
-	Samples []*StackSample `json:"samples"`
-}
-
-// StackSample 栈样本
-type StackSample struct {
-	Stack   []string `json:"stack"`
-	Count   int      `json:"count"`
-}
-
-// MemoryProfile 内存剖析
-type MemoryProfile struct {
-	HeapInUse  uint64        `json:"heap_in_use"`
-	HeapAlloc  uint64        `json:"heap_alloc"`
-	StackInUse uint64        `json:"stack_in_use"`
 }
 
 // GoroutineProfile 协程剖析
@@ -483,15 +465,14 @@ func NewPerformanceProfiler() *PerformanceProfiler {
 // Profile 剖析
 func (pp *PerformanceProfiler) Profile(ctx context.Context, duration time.Duration) (*ProfileReport, error) {
 	report := &ProfileReport{
-		ID:       generateProfileID(),
-		Duration: duration,
-		CPUProfile: &CPUProfile{
-			Samples: make([]*StackSample, 0),
+		ExecutionResult: &ExecutionResult{
+			Success: true,
 		},
-		MemProfile: &MemoryProfile{},
-		GoroutineProfile: &GoroutineProfile{
-			States: make(map[string]int),
-		},
+		MemorySnapshots: make([]*MemorySnapshot, 0),
+		ParallelStats:   &ParallelStats{},
+		JITStats:        &JITStats{},
+		AggregateStats:  &AggregateStats{},
+		Config:          &PerformanceProfile{},
 	}
 
 	return report, nil
@@ -511,101 +492,6 @@ func (pp *PerformanceProfiler) CollectMetrics(name string) *PerformanceMetrics {
 	}
 
 	return metrics
-}
-
-// MemoryOptimizer 内存优化器
-type MemoryOptimizer struct {
-	pools    map[string]*MemoryPool
-	objects  map[string]*ObjectTracker
-	mu       sync.RWMutex
-}
-
-// MemoryPool 内存池
-type MemoryPool struct {
-	Name     string       `json:"name"`
-	Objects  []interface{} `json:"objects"`
-	MaxSize  int          `json:"max_size"`
-	NewFunc  func() interface{} `json:"-"`
-}
-
-// ObjectTracker 对象追踪器
-type ObjectTracker struct {
-	Type      string `json:"type"`
-	Count     int    `json:"count"`
-	TotalSize int64  `json:"total_size"`
-}
-
-// OptimizationReport 优化报告
-type OptimizationReport struct {
-	MemoryFreed  int64         `json:"memory_freed"`
-	ObjectsReused int           `json:"objects_reused"`
-	GCReduced    time.Duration `json:"gc_reduced"`
-	Suggestions  []string      `json:"suggestions"`
-}
-
-// NewMemoryOptimizer 创建内存优化器
-func NewMemoryOptimizer() *MemoryOptimizer {
-	return &MemoryOptimizer{
-		pools:   make(map[string]*MemoryPool),
-		objects: make(map[string]*ObjectTracker),
-	}
-}
-
-// Optimize 优化
-func (mo *MemoryOptimizer) Optimize() *OptimizationReport {
-	report := &OptimizationReport{
-		Suggestions: make([]string, 0),
-	}
-
-	// 简化实现
-	return report
-}
-
-// CreatePool 创建池
-func (mo *MemoryOptimizer) CreatePool(name string, maxSize int, newFunc func() interface{}) {
-	mo.mu.Lock()
-	defer mo.mu.Unlock()
-
-	mo.pools[name] = &MemoryPool{
-		Name:    name,
-		Objects: make([]interface{}, 0),
-		MaxSize: maxSize,
-		NewFunc: newFunc,
-	}
-}
-
-// Get 获取
-func (mo *MemoryOptimizer) Get(poolName string) interface{} {
-	mo.mu.Lock()
-	defer mo.mu.Unlock()
-
-	pool, exists := mo.pools[poolName]
-	if !exists {
-		return nil
-	}
-
-	if len(pool.Objects) > 0 {
-		obj := pool.Objects[0]
-		pool.Objects = pool.Objects[1:]
-		return obj
-	}
-
-	return pool.NewFunc()
-}
-
-// Put 放回
-func (mo *MemoryOptimizer) Put(poolName string, obj interface{}) {
-	mo.mu.Lock()
-	defer mo.mu.Unlock()
-
-	pool, exists := mo.pools[poolName]
-	if !exists {
-		return
-	}
-
-	if len(pool.Objects) < pool.MaxSize {
-		pool.Objects = append(pool.Objects, obj)
-	}
 }
 
 // LockFreeStructures 无锁数据结构

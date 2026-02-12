@@ -3,7 +3,6 @@ package devtools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,7 +70,7 @@ func (dx *DeveloperExperience) Lint(ctx context.Context, files []string) ([]*Lin
 
 // Format 格式化代码
 func (dx *DeveloperExperience) Format(ctx context.Context, files []string) ([]*FormatResult, error) {
-	return dx.formatr.Format(ctx, files)
+	return dx.formatter.Format(ctx, files)
 }
 
 // RunTests 运行测试

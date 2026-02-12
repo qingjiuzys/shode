@@ -4,11 +4,9 @@ package scaffold
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 )
 
 // ProjectTemplate 项目模板
@@ -139,18 +137,16 @@ func (pt *ProjectTemplate) generateReadme(dir string) error {
 
 ## Getting Started
 
-\`\`\`bash
-# Install dependencies
+`+"```bash"+`# Install dependencies
 go mod tidy
 
 # Run the application
 go run cmd/main.go
-\`\`\`
+`+"```"+`
 
 ## Project Structure
 
-\`\`\`
-%s/
+`+"```"+`%s/
 ├── cmd/           # Command-line applications
 ├── pkg/           # Package code
 ├── web/           # Web assets
@@ -158,18 +154,18 @@ go run cmd/main.go
 ├── scripts/       # Build and deployment scripts
 ├── tests/         # Test files
 └── docs/          # Documentation
-\`\`\`
+`+"```"+`
 
 ## Configuration
 
-Configuration files are stored in the \`config/\` directory.
+Configuration files are stored in the `+"`config/`"+` directory.
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (\`git checkout -b feature/amazing-feature\`)
-3. Commit your changes (\`git commit -m 'Add some amazing feature'\`)
-4. Push to the branch (\`git push origin feature/amazing-feature\`)
+2. Create your feature branch (`+"`git checkout -b feature/amazing-feature`"+`)
+3. Commit your changes (`+"`git commit -m 'Add some amazing feature'`"+`)
+4. Push to the branch (`+"`git push origin feature/amazing-feature`"+`)
 5. Open a Pull Request
 
 ## License
@@ -188,7 +184,7 @@ func (pt *ProjectTemplate) generateGitignore(dir string) error {
 *.so
 *.dylib
 
-# Test binary, built with \`go test -c\`
+# Test binary, built with ` + "`go test -c`" + `
 *.test
 
 # Output of the go coverage tool
@@ -283,59 +279,6 @@ func getGitUser() string {
 		return user
 	}
 	return "Your Name"
-}
-
-// Generator 代码生成器
-type Generator struct {
-	templates map[string]*template.Template
-}
-
-// NewGenerator 创建代码生成器
-func NewGenerator() *Generator {
-	return &Generator{
-		templates: make(map[string]*template.Template),
-	}
-}
-
-// LoadTemplate 加载模板
-func (g *Generator) LoadTemplate(name, content string) error {
-	tmpl, err := template.New(name).Parse(content)
-	if err != nil {
-		return err
-	}
-	g.templates[name] = tmpl
-	return nil
-}
-
-// Generate 生成代码
-func (g *Generator) Generate(templateName string, data interface{}) (string, error) {
-	tmpl, exists := g.templates[templateName]
-	if !exists {
-		return "", fmt.Errorf("template %s not found", templateName)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
-}
-
-// GenerateFile 生成文件
-func (g *Generator) GenerateFile(templateName, data interface{}, outputPath string) error {
-	content, err := g.Generate(templateName, data)
-	if err != nil {
-		return err
-	}
-
-	// 确保目录存在
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	return os.WriteFile(outputPath, []byte(content), 0644)
 }
 
 // AskUser 询问用户

@@ -48,7 +48,6 @@ func NewCIGenerator(config *CIConfig) *CIGenerator {
 // GenerateGitHubActions 生成 GitHub Actions 工作流
 func (g *CIGenerator) GenerateGitHubActions() string {
 	var dockerBuild string
-	var dockerPush string
 	var k8sDeploy string
 
 	if g.config.EnableDocker {
@@ -474,8 +473,8 @@ func WriteCIConfigs(config *CIConfig, outputDir string) error {
 	}
 
 	// 写入文件
-	for filepath, content := range files {
-		fullPath := filepath.Join(outputDir, filepath)
+	for filePath, content := range files {
+		fullPath := filepath.Join(outputDir, filePath)
 		dir := filepath.Dir(fullPath)
 
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -483,7 +482,7 @@ func WriteCIConfigs(config *CIConfig, outputDir string) error {
 		}
 
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", filepath, err)
+			return fmt.Errorf("failed to write %s: %w", fullPath, err)
 		}
 	}
 

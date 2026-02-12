@@ -77,7 +77,6 @@ func (c *MemoryDistributedCache) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	now := time.Now()
 	for key, item := range c.items {
 		if item.IsExpired() {
 			if c.onEvict != nil {

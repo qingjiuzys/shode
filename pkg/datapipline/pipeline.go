@@ -207,7 +207,7 @@ type DataTransformer struct {
 // TransformRule 转换规则
 type TransformRule struct {
 	Name     string                 `json:"name"`
-	Type     string                 `json:"type"` // "filter", "map", "aggregate", "join"
+	Type     string                 `json:"type"` // "filter", "transform", "aggregate", "join"
 	Config   map[string]interface{} `json:"config"`
 }
 
@@ -226,8 +226,8 @@ func (dt *DataTransformer) Transform(ctx context.Context, data interface{}, rule
 		switch rule.Type {
 		case "filter":
 			result = dt.filter(result, rule)
-		case "map":
-			result = dt.map(result, rule)
+		case "transform":
+			result = dt.transform(result, rule)
 		case "aggregate":
 			result = dt.aggregate(result, rule)
 		}
@@ -242,8 +242,8 @@ func (dt *DataTransformer) filter(data interface{}, rule *TransformRule) interfa
 	return data
 }
 
-// map 映射
-func (dt *DataTransformer) map(data interface{}, rule *TransformRule) interface{} {
+// transform 转换
+func (dt *DataTransformer) transform(data interface{}, rule *TransformRule) interface{} {
 	// 简化实现
 	return data
 }
@@ -259,6 +259,15 @@ type DataQuality struct {
 	rules    map[string]*QualityCheck
 	reports  map[string]*QualityReport
 	mu       sync.RWMutex
+}
+
+// QualityRule 质量规则
+type QualityRule struct {
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"` // "completeness", "accuracy", "consistency", "timeliness"
+	Condition   string                 `json:"condition"`
+	Severity    string                 `json:"severity"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
 // QualityCheck 质量检查

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -183,35 +184,35 @@ func generateSpanID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
-// Metrics 指标收集器
-type Metrics struct {
+// HealthMetrics 健康指标收集器
+type HealthMetrics struct {
 	StartTime time.Time
 }
 
-// NewMetrics 创建指标收集器
-func NewMetrics() *Metrics {
-	return &Metrics{
+// NewHealthMetrics 创建健康指标收集器
+func NewHealthMetrics() *HealthMetrics {
+	return &HealthMetrics{
 		StartTime: time.Now(),
 	}
 }
 
 // GetUptime 获取运行时间
-func (m *Metrics) GetUptime() time.Duration {
+func (m *HealthMetrics) GetUptime() time.Duration {
 	return time.Since(m.StartTime)
 }
 
 // GetMemoryStats 获取内存统计
-func (m *Metrics) GetMemoryStats() runtime.MemStats {
+func (m *HealthMetrics) GetMemoryStats() runtime.MemStats {
 	return runtime.MemStats{}
 }
 
 // GetGoroutines 获取 goroutine 数量
-func (m *Metrics) GetGoroutines() int {
+func (m *HealthMetrics) GetGoroutines() int {
 	return runtime.NumGoroutine()
 }
 
 // GetStats 获取所有统计信息
-func (m *Metrics) GetStats() map[string]interface{} {
+func (m *HealthMetrics) GetStats() map[string]interface{} {
 	memStats := m.GetMemoryStats()
 
 	return map[string]interface{}{
@@ -227,7 +228,7 @@ func (m *Metrics) GetStats() map[string]interface{} {
 }
 
 // ExportPrometheus 导出到 Prometheus 格式
-func (m *Metrics) ExportPrometheus() string {
+func (m *HealthMetrics) ExportPrometheus() string {
 	stats := m.GetStats()
 
 	var output strings.Builder
@@ -243,4 +244,4 @@ func (m *Metrics) ExportPrometheus() string {
 }
 
 // DefaultMetricsCollector 默认指标收集器
-var DefaultMetricsCollector = NewMetrics()
+var DefaultMetricsCollector = NewHealthMetrics()

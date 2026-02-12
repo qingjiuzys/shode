@@ -4,7 +4,6 @@ package security
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"

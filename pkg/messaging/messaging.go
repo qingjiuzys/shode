@@ -3,7 +3,6 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -43,7 +42,7 @@ func (me *MessagingEngine) Publish(ctx context.Context, topic string, message *M
 func (me *MessagingEngine) Subscribe(ctx context.Context, topic, group string, handler MessageHandler) error {
 	consumer := &ConsumerGroup{
 		ID:      group,
-		Topic:   topic,
+		Topics:  []string{topic},
 		Handler: handler,
 	}
 

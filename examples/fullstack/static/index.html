@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shode TODO App - Full-Stack Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .todo-list {
+            list-style: none;
+        }
+
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            transition: background 0.3s;
+        }
+
+        .todo-item:hover {
+            background: #f8f9fa;
+        }
+
+        .todo-item:last-child {
+            border-bottom: none;
+        }
+
+        .todo-checkbox {
+            width: 20px;
+            height: 20px;
+            margin-right: 15px;
+            cursor: pointer;
+        }
+
+        .todo-text {
+            flex: 1;
+            font-size: 16px;
+        }
+
+        .todo-text.completed {
+            text-decoration: line-through;
+            color: #999;
+        }
+
+        .todo-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 14px;
+            border-radius: 3px;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .connection-status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .todo-item {
+            animation: fadeIn 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Shode TODO App</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 20px;">
+            Full-Stack Example with WebSocket Real-time Updates
+        </p>
+
+        <div id="connectionStatus" class="connection-status status-disconnected">
+            🔴 连接状态: 断开
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="todoInput" placeholder="添加新的TODO..." />
+            <button class="btn-primary" onclick="addTodo()">添加</button>
+        </div>
+
+        <ul id="todoList" class="todo-list">
+            <li class="empty-state">
+                加载中...
+            </li>
+        </ul>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectTimer = null;
+
+        // 连接WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                updateConnectionStatus(true);
+                loadTodos();
+            };
+
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                console.log('Received message:', message);
+                handleWebSocketMessage(message);
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+                // 尝试重连
+                reconnectTimer = setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDiv = document.getElementById('connectionStatus');
+            if (connected) {
+                statusDiv.className = 'connection-status status-connected';
+                statusDiv.innerHTML = '🟢 连接状态: 已连接';
+            } else {
+                statusDiv.className = 'connection-status status-disconnected';
+                statusDiv.innerHTML = '🔴 连接状态: 断开';
+            }
+        }
+
+        function handleWebSocketMessage(message) {
+            switch(message.type) {
+                case 'todo_created':
+                    addTodoToList(message.data);
+                    break;
+                case 'todo_updated':
+                    updateTodoInList(message.data);
+                    break;
+                case 'todo_deleted':
+                    removeTodoFromList(message.data.id);
+                    break;
+            }
+        }
+
+        // API调用
+        async function apiCall(url, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            };
+
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+
+            const response = await fetch(url, options);
+            return response.json();
+        }
+
+        // 加载TODO列表
+        async function loadTodos() {
+            const todos = await apiCall('/api/todos');
+            renderTodoList(todos);
+        }
+
+        // 渲染TODO列表
+        function renderTodoList(todos) {
+            const list = document.getElementById('todoList');
+            list.innerHTML = '';
+
+            if (todos.length === 0) {
+                list.innerHTML = '<li class="empty-state">暂无TODO项</li>';
+                return;
+            }
+
+            todos.forEach(todo => {
+                const li = createTodoElement(todo);
+                list.appendChild(li);
+            });
+        }
+
+        // 创建TODO元素
+        function createTodoElement(todo) {
+            const li = document.createElement('li');
+            li.className = 'todo-item';
+            li.id = `todo-${todo.id}`;
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'todo-checkbox';
+            checkbox.checked = todo.completed;
+            checkbox.onclick = () => toggleTodo(todo.id);
+
+            const span = document.createElement('span');
+            span.className = 'todo-text' + (todo.completed ? ' completed' : '');
+            span.textContent = todo.title;
+
+            const actions = document.createElement('div');
+            actions.className = 'todo-actions';
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn-small btn-danger';
+            deleteBtn.textContent = '删除';
+            deleteBtn.onclick = () => deleteTodo(todo.id);
+
+            actions.appendChild(deleteBtn);
+            li.appendChild(checkbox);
+            li.appendChild(span);
+            li.appendChild(actions);
+
+            return li;
+        }
+
+        // 添加TODO
+        async function addTodo() {
+            const input = document.getElementById('todoInput');
+            const title = input.value.trim();
+
+            if (!title) {
+                alert('请输入TODO内容');
+                return;
+            }
+
+            const todo = await apiCall('/api/todos', 'POST', {
+                title: title,
+                completed: false
+            });
+
+            input.value = '';
+            addTodoToList(todo);
+        }
+
+        // 切换TODO状态
+        async function toggleTodo(id) {
+            const todo = await apiCall(`/api/todos/${id}/toggle`, 'POST');
+            updateTodoInList(todo);
+        }
+
+        // 删除TODO
+        async function deleteTodo(id) {
+            await apiCall(`/api/todos/${id}`, 'DELETE');
+            removeTodoFromList(id);
+        }
+
+        // 添加到列表
+        function addTodoToList(todo) {
+            const list = document.getElementById('todoList');
+            const emptyState = list.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const li = createTodoElement(todo);
+            list.appendChild(li);
+        }
+
+        // 更新列表中的TODO
+        function updateTodoInList(todo) {
+            const li = document.getElementById(`todo-${todo.id}`);
+            if (li) {
+                const newLi = createTodoElement(todo);
+                li.replaceWith(newLi);
+            }
+        }
+
+        // 从列表中移除TODO
+        function removeTodoFromList(id) {
+            const li = document.getElementById(`todo-${id}`);
+            if (li) {
+                li.remove();
+
+                // 检查是否为空
+                const list = document.getElementById('todoList');
+                if (list.children.length === 0) {
+                    list.innerHTML = '<li class="empty-state">暂无TODO项</li>';
+                }
+            }
+        }
+
+        // 初始化
+        window.onload = function() {
+            connectWebSocket();
+
+            // 支持回车键添加
+            document.getElementById('todoInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    addTodo();
+                }
+            });
+        };
+    </script>
+</body>
+</html>

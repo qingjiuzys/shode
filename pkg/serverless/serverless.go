@@ -3,7 +3,6 @@ package serverless
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"

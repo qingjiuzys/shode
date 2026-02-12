@@ -3,7 +3,6 @@ package collab
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -26,6 +25,7 @@ type Document struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 	Version    int                `json:"version"`
 	Deleted    bool               `json:"deleted"`
+	Mu         sync.RWMutex       `json:"-"`
 }
 
 // Operation 操作
@@ -71,7 +71,7 @@ func (ott *OTTAlgorithm) AddReplica(siteID string) *Replica {
 	defer ott.mu.Unlock()
 
 	replica := &Replica{
-		ID:       fmt.Sprintf("%s_%s", document.ID, siteID),
+		ID:       fmt.Sprintf("%s_%s", ott.document.ID, siteID),
 		Document: ott.document,
 		State: &DocumentState{
 			Version:     0,
@@ -214,7 +214,7 @@ type Assignment struct {
 // NewLWWRegister 创建 LWW 寄存器
 func NewLWWRegister() *LWWRegister {
 	return &LWWRegister{
-		assigns: make(map[string]*Assignment),
+		assigns: make(map[string]Assignment),
 	}
 }
 
@@ -225,11 +225,10 @@ func (lwr *LWWRegister) Assign(siteID, clientID string) int {
 
 	assignment, exists := lwr.assigns[siteID]
 	if !exists {
-		assignment = &Assignment{
+		assignment = Assignment{
 			SiteID:      siteID,
+			Counter:    0,
 			Assignments: make(map[string]int),
-		Counter:    0,
-		Assigns:     make(map[string]int),
 		}
 		lwr.assigns[siteID] = assignment
 	}
@@ -243,7 +242,7 @@ func (lwr *LWWRegister) Assign(siteID, clientID string) int {
 // GetAssignments 获取分配
 func (lwr *LWWRegister) GetAssignments(siteID string) map[string]int {
 	lwr.mu.RLock()
-	defer lwr.RWRUnlock()
+	defer lwr.mu.RUnlock()
 
 	if assignment, exists := lwr.assigns[siteID]; exists {
 		// 返回副本
@@ -259,7 +258,7 @@ func (lwr *LWWRegister) GetAssignments(siteID string) map[string]int {
 
 // Resolve 冲突解决
 func (lwr *LWWRegister) Resolve(siteID string, operations []*Operation) []*Operation {
-	assignments := lwr.GetAssignments(siteID)
+	_ = lwr.GetAssignments(siteID)
 
 	// 按分配值排序操作
 	sortedOps := make([]*Operation, len(operations))

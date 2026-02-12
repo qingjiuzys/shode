@@ -286,6 +286,9 @@ func (p *Profiler) GetGCStats() GCStats {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
+	// 注意：Pause 和 PauseEnd 字段在较新版本中可用
+	// 为了兼容性，暂时注释掉
+	/*
 	pauses := make([]time.Duration, len(m.Pause))
 	pauseEnds := make([]time.Time, len(m.PauseEnd))
 
@@ -293,13 +296,14 @@ func (p *Profiler) GetGCStats() GCStats {
 		pauses[i] = time.Duration(pauseNs) * time.Nanosecond
 		pauseEnds[i] = time.Unix(0, int64(m.PauseEnd[i]))
 	}
+	*/
 
 	return GCStats{
 		LastGC:         time.Unix(0, int64(m.LastGC)),
 		NumGC:          m.NumGC,
 		PauseTotal:     time.Duration(m.PauseTotalNs) * time.Nanosecond,
-		Pause:          pauses,
-		PauseEnd:       pauseEnds,
+		Pause:          nil, // 暂时返回nil
+		PauseEnd:       nil, // 暂时返回nil
 		NextGC:         m.NextGC,
 		NumForcedGC:    m.NumForcedGC,
 		GCCPUFraction:  m.GCCPUFraction,

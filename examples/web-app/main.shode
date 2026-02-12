@@ -1,0 +1,603 @@
+#!/usr/bin/env shode
+# Web 应用示例 - RESTful API 服务
+# 演示如何使用 Shode 框架构建现代化的 Web 应用
+
+import {
+    http,
+    json,
+    database,
+    cache,
+    logger,
+    config,
+    middleware
+} from "std"
+
+// 配置
+cfg = config.load("config.shode")
+
+// 初始化日志
+log = logger.new({
+    level: cfg.logging.level,
+    format: cfg.logging.format,
+    output: cfg.logging.output
+})
+
+// 初始化数据库
+db = database.connect(cfg.database)
+
+// 初始化缓存
+redis = cache.connect(cfg.redis)
+
+// JWT 密钥
+JWT_SECRET = cfg.jwt.secret
+
+// 中间件：请求日志
+middleware.request_log = func(req, res, next) {
+    start_time = timestamp()
+    log.info("${req.method} ${req.path}")
+
+    next()
+
+    duration = timestamp() - start_time
+    log.info("${req.method} ${req.path} - ${res.status} (${duration}ms)")
+}
+
+// 中间件：CORS
+middleware.cors = func(req, res, next) {
+    res.headers["Access-Control-Allow-Origin"] = "*"
+    res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+
+    if req.method == "OPTIONS" {
+        res.status(200)
+        return
+    }
+
+    next()
+}
+
+// 中间件：认证
+middleware.auth = func(req, res, next) {
+    token = req.headers["Authorization"]
+
+    if token == null {
+        res.status(401).json({"error": "未提供认证令牌"})
+        return
+    }
+
+    // 移除 "Bearer " 前缀
+    token = token.replace("Bearer ", "")
+
+    // 验证 JWT
+    claims = jwt.verify(token, JWT_SECRET)
+
+    if claims == null {
+        res.status(401).json({"error": "无效的令牌"})
+        return
+    }
+
+    // 将用户信息附加到请求
+    req.user = claims
+
+    next()
+}
+
+// 中间件：限流
+middleware.rate_limit = func(req, res, next) {
+    if !cfg.rate_limit.enabled {
+        next()
+        return
+    }
+
+    key = "rate_limit:${req.remote_addr}"
+    current = redis.get(key)
+
+    if current == null {
+        redis.set(key, 1, 60)  // 60秒过期
+        next()
+        return
+    }
+
+    count = int(current)
+
+    if count >= cfg.rate_limit.requests_per_minute {
+        res.status(429).json({"error": "请求过于频繁，请稍后再试"})
+        return
+    }
+
+    redis.incr(key)
+
+    next()
+}
+
+// 辅助函数：生成 JWT
+generate_jwt = func(user_id) {
+    payload = {
+        user_id: user_id,
+        exp: timestamp() + (cfg.jwt.expire_hours * 3600)
+    }
+    return jwt.sign(payload, JWT_SECRET)
+}
+
+// 辅助函数：验证密码
+verify_password = func(password, hash) {
+    // 简化实现，实际应该使用 bcrypt
+    return password == hash  // 仅用于示例
+}
+
+// 辅助函数：哈希密码
+hash_password = func(password) {
+    // 简化实现，实际应该使用 bcrypt
+    return password  // 仅用于示例
+}
+
+// === 路由定义 ===
+
+// 健康检查
+http.get("/health", func(req, res) {
+    res.json({
+        status: "ok",
+        timestamp: timestamp(),
+        version: "1.0.0"
+    })
+})
+
+// 性能指标
+http.get("/metrics", func(req, res) {
+    metrics = {
+        http_requests_total: 12345,
+        http_request_duration_ms: 45.2,
+        http_requests_in_flight: 3,
+        cache_hits_total: 8900,
+        db_connections_active: 5
+    }
+    res.json(metrics)
+})
+
+// === 用户管理 API ===
+
+// 用户注册
+http.post("/api/v1/users/register", func(req, res) {
+    data = req.body
+
+    // 验证输入
+    if data.username == null || data.email == null || data.password == null {
+        res.status(400).json({"error": "缺少必需字段"})
+        return
+    }
+
+    // 检查用户是否已存在
+    existing_user = db.query_one(
+        "SELECT id FROM users WHERE username = $1 OR email = $2",
+        [data.username, data.email]
+    )
+
+    if existing_user != null {
+        res.status(409).json({"error": "用户名或邮箱已存在"})
+        return
+    }
+
+    // 创建用户
+    password_hash = hash_password(data.password)
+    user_id = db.insert(
+        "INSERT INTO users (username, email, password_hash, created_at) VALUES ($1, $2, $3, $4) RETURNING id",
+        [data.username, data.email, password_hash, timestamp()]
+    )
+
+    // 生成 JWT
+    token = generate_jwt(user_id)
+
+    log.info("用户注册成功: ${data.username}")
+
+    res.status(201).json({
+        message: "注册成功",
+        token: token,
+        user: {
+            id: user_id,
+            username: data.username,
+            email: data.email
+        }
+    })
+})
+
+// 用户登录
+http.post("/api/v1/users/login", func(req, res) {
+    data = req.body
+
+    // 验证输入
+    if data.username == null || data.password == null {
+        res.status(400).json({"error": "缺少用户名或密码"})
+        return
+    }
+
+    // 查询用户
+    user = db.query_one(
+        "SELECT id, username, email, password_hash FROM users WHERE username = $1",
+        [data.username]
+    )
+
+    if user == null {
+        res.status(401).json({"error": "用户名或密码错误"})
+        return
+    }
+
+    // 验证密码
+    if !verify_password(data.password, user.password_hash) {
+        res.status(401).json({"error": "用户名或密码错误"})
+        return
+    }
+
+    // 生成 JWT
+    token = generate_jwt(user.id)
+
+    log.info("用户登录成功: ${data.username}")
+
+    res.json({
+        message: "登录成功",
+        token: token,
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email
+        }
+    })
+})
+
+// 获取用户信息（需要认证）
+http.get("/api/v1/users/profile", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+
+    // 尝试从缓存获取
+    cache_key = "user:${user_id}"
+    cached_user = redis.get(cache_key)
+
+    if cached_user != null {
+        res.json(json.parse(cached_user))
+        return
+    }
+
+    // 从数据库查询
+    user = db.query_one(
+        "SELECT id, username, email, created_at FROM users WHERE id = $1",
+        [user_id]
+    )
+
+    if user == null {
+        res.status(404).json({"error": "用户不存在"})
+        return
+    }
+
+    // 缓存用户信息（1小时）
+    redis.set(cache_key, json.stringify(user), 3600)
+
+    res.json(user)
+})
+
+// 更新用户信息（需要认证）
+http.put("/api/v1/users/profile", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+    data = req.body
+
+    // 构建更新语句
+    updates = []
+    params = []
+    param_count = 1
+
+    if data.email != null {
+        updates.push("email = $${param_count}")
+        params.push(data.email)
+        param_count++
+    }
+
+    if data.password != null {
+        password_hash = hash_password(data.password)
+        updates.push("password_hash = $${param_count}")
+        params.push(password_hash)
+        param_count++
+    }
+
+    if len(updates) == 0 {
+        res.status(400).json({"error": "没有要更新的字段"})
+        return
+    }
+
+    // 添加 updated_at
+    updates.push("updated_at = $${param_count}")
+    params.push(timestamp())
+
+    // 添加 user_id
+    params.push(user_id)
+
+    // 执行更新
+    query = "UPDATE users SET ${updates.join(", ")} WHERE id = $${param_count}"
+    db.execute(query, params)
+
+    // 清除缓存
+    redis.delete("user:${user_id}")
+
+    log.info("用户信息更新成功: ${user_id}")
+
+    res.json({"message": "更新成功"})
+})
+
+// 删除用户（需要认证）
+http.delete("/api/v1/users/profile", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+
+    // 删除用户
+    db.execute("DELETE FROM users WHERE id = $1", [user_id])
+
+    // 清除缓存
+    redis.delete("user:${user_id}")
+
+    log.info("用户删除成功: ${user_id}")
+
+    res.json({"message": "删除成功"})
+})
+
+// === 文章管理 API ===
+
+// 获取文章列表
+http.get("/api/v1/articles", [middleware.rate_limit], func(req, res) {
+    page = int(req.query.page || 1)
+    limit = int(req.query.limit || 10)
+    offset = (page - 1) * limit
+
+    // 尝试从缓存获取
+    cache_key = "articles:page=${page}:limit=${limit}"
+    cached_articles = redis.get(cache_key)
+
+    if cached_articles != null {
+        res.json(json.parse(cached_articles))
+        return
+    }
+
+    // 查询文章列表
+    articles = db.query(
+        "SELECT id, title, excerpt, author_id, created_at, updated_at
+         FROM articles
+         ORDER BY created_at DESC
+         LIMIT $1 OFFSET $2",
+        [limit, offset]
+    )
+
+    // 查询总数
+    total = db.query_one("SELECT COUNT(*) as count FROM articles").count
+
+    result = {
+        articles: articles,
+        pagination: {
+            page: page,
+            limit: limit,
+            total: total,
+            pages: math.ceil(total / limit)
+        }
+    }
+
+    // 缓存结果（5分钟）
+    redis.set(cache_key, json.stringify(result), 300)
+
+    res.json(result)
+})
+
+// 获取文章详情
+http.get("/api/v1/articles/:id", func(req, res) {
+    article_id = req.params.id
+
+    // 尝试从缓存获取
+    cache_key = "article:${article_id}"
+    cached_article = redis.get(cache_key)
+
+    if cached_article != null {
+        res.json(json.parse(cached_article))
+        return
+    }
+
+    // 查询文章
+    article = db.query_one(
+        "SELECT * FROM articles WHERE id = $1",
+        [article_id]
+    )
+
+    if article == null {
+        res.status(404).json({"error": "文章不存在"})
+        return
+    }
+
+    // 缓存文章（30分钟）
+    redis.set(cache_key, json.stringify(article), 1800)
+
+    res.json(article)
+})
+
+// 创建文章（需要认证）
+http.post("/api/v1/articles", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+    data = req.body
+
+    // 验证输入
+    if data.title == null || data.content == null {
+        res.status(400).json({"error": "缺少标题或内容"})
+        return
+    }
+
+    // 生成摘要
+    excerpt = data.content.substring(0, 200)
+
+    // 创建文章
+    article_id = db.insert(
+        "INSERT INTO articles (title, content, excerpt, author_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        [data.title, data.content, excerpt, user_id, timestamp(), timestamp()]
+    )
+
+    log.info("文章创建成功: ${article_id}")
+
+    res.status(201).json({
+        message: "创建成功",
+        article_id: article_id
+    })
+})
+
+// 更新文章（需要认证）
+http.put("/api/v1/articles/:id", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+    article_id = req.params.id
+    data = req.body
+
+    // 检查文章是否存在以及是否是作者
+    article = db.query_one(
+        "SELECT author_id FROM articles WHERE id = $1",
+        [article_id]
+    )
+
+    if article == null {
+        res.status(404).json({"error": "文章不存在"})
+        return
+    }
+
+    if article.author_id != user_id {
+        res.status(403).json({"error": "无权修改此文章"})
+        return
+    }
+
+    // 构建更新语句
+    updates = []
+    params = []
+    param_count = 1
+
+    if data.title != null {
+        updates.push("title = $${param_count}")
+        params.push(data.title)
+        param_count++
+    }
+
+    if data.content != null {
+        updates.push("content = $${param_count}")
+        params.push(data.content)
+        param_count++
+
+        if data.excerpt == null {
+            updates.push("excerpt = $${param_count}")
+            params.push(data.content.substring(0, 200))
+            param_count++
+        }
+    }
+
+    if data.excerpt != null {
+        updates.push("excerpt = $${param_count}")
+        params.push(data.excerpt)
+        param_count++
+    }
+
+    if len(updates) == 0 {
+        res.status(400).json({"error": "没有要更新的字段"})
+        return
+    }
+
+    // 添加 updated_at
+    updates.push("updated_at = $${param_count}")
+    params.push(timestamp())
+
+    // 添加 article_id
+    params.push(article_id)
+
+    // 执行更新
+    query = "UPDATE articles SET ${updates.join(", ")} WHERE id = $${param_count}"
+    db.execute(query, params)
+
+    // 清除缓存
+    redis.delete("article:${article_id}")
+
+    log.info("文章更新成功: ${article_id}")
+
+    res.json({"message": "更新成功"})
+})
+
+// 删除文章（需要认证）
+http.delete("/api/v1/articles/:id", [middleware.auth], func(req, res) {
+    user_id = req.user.user_id
+    article_id = req.params.id
+
+    // 检查文章是否存在以及是否是作者
+    article = db.query_one(
+        "SELECT author_id FROM articles WHERE id = $1",
+        [article_id]
+    )
+
+    if article == null {
+        res.status(404).json({"error": "文章不存在"})
+        return
+    }
+
+    if article.author_id != user_id {
+        res.status(403).json({"error": "无权删除此文章"})
+        return
+    }
+
+    // 删除文章
+    db.execute("DELETE FROM articles WHERE id = $1", [article_id])
+
+    // 清除缓存
+    redis.delete("article:${article_id}")
+
+    log.info("文章删除成功: ${article_id}")
+
+    res.json({"message": "删除成功"})
+})
+
+// === 统计信息 API ===
+
+// 获取统计信息（需要认证）
+http.get("/api/v1/stats", [middleware.auth], func(req, res) {
+    // 获取用户统计
+    user_stats = db.query_one(
+        "SELECT COUNT(*) as total_users FROM users"
+    )
+
+    // 获取文章统计
+    article_stats = db.query_one(
+        "SELECT COUNT(*) as total_articles FROM articles"
+    )
+
+    // 获取今日新增文章
+    today_articles = db.query_one(
+        "SELECT COUNT(*) as count FROM articles WHERE DATE(created_at) = CURRENT_DATE"
+    )
+
+    res.json({
+        users: {
+            total: user_stats.total_users
+        },
+        articles: {
+            total: article_stats.total_articles,
+            today: today_articles.count
+        },
+        timestamp: timestamp()
+    })
+})
+
+// === 错误处理 ===
+
+// 404 处理
+http.use(func(req, res, next) {
+    if res.status == null {
+        res.status(404).json({"error": "未找到请求的资源"})
+    }
+})
+
+// 启动服务器
+log.info("启动 Web 服务器...")
+log.info("服务器地址: http://${cfg.server.host}:${cfg.server.port}")
+log.info("健康检查: http://${cfg.server.host}:${cfg.server.port}/health")
+log.info("API 文档: http://${cfg.server.host}:${cfg.server.port}/docs")
+
+http.server({
+    host: cfg.server.host,
+    port: cfg.server.port,
+    middleware: [
+        middleware.request_log,
+        middleware.cors,
+        middleware.rate_limit
+    ]
+})

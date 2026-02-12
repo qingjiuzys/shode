@@ -4,7 +4,6 @@ package spatial
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 )
@@ -172,7 +171,7 @@ func (arr *ARVRRenderer) RenderFrame(ctx context.Context, rendererID string, sce
 		FrameID:    generateFrameID(),
 		RendererID: rendererID,
 		Timestamp:  time.Now(),
-		FrameTime:  16.7 * time.Millisecond,
+		FrameTime:  17 * time.Millisecond,
 		FPS:        60.0,
 	}
 
@@ -387,7 +386,7 @@ func (sm *SceneManager) Update(ctx context.Context, instanceID string, deltaTime
 // SpatialMapping 空间映射
 type SpatialMapping struct {
 	maps       map[string]*SpatialMap
-	meshes     map[string]*SpatialMesh"
+	meshes     map[string]*SpatialMesh
 	anchors    map[string]*SpatialAnchor
 	mu         sync.RWMutex
 }
@@ -506,9 +505,9 @@ func (sm *SpatialMapping) CreateAnchor(ctx context.Context, position *Vector3, r
 
 // GestureRecognition 手势识别
 type GestureRecognition struct {
-	models     map[string]*GestureModel"
-	gestures   map[string]*Gesture"
-	tracks     map[string]*HandTrack"
+	models     map[string]*GestureModel
+	gestures   map[string]*Gesture
+	tracks     map[string]*HandTrack
 	mu         sync.RWMutex
 }
 
@@ -584,9 +583,9 @@ func (gr *GestureRecognition) Recognize(ctx context.Context, hand *HandData) (*G
 
 // XRFramework XR 框架
 type XRFramework struct {
-	apps       map[string]*XRApp"
-	instances  map[string]*XRInstance"
-	devices    map[string]*XRDevice"
+	apps       map[string]*XRApp
+	instances  map[string]*XRInstance
+	devices    map[string]*XRDevice
 	mu         sync.RWMutex
 }
 

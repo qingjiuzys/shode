@@ -1,0 +1,516 @@
+#!/usr/bin/env shode
+# CLI 工具示例 - 功能完整的命令行应用
+# 演示 Shode 框架在 CLI 应用中的能力
+
+import {
+    cli,
+    fs,
+    logger,
+    config,
+    terminal
+} from "std"
+
+// 版本信息
+VERSION = "1.0.0"
+
+// 初始化日志
+log = logger.new({
+    level: "info",
+    format: "text",
+    colorize: true
+})
+
+// 加载配置
+cfg = config.load("config/default.conf")
+
+// === CLI 应用定义 ===
+
+app = cli.app({
+    name: "shode-cli",
+    version: VERSION,
+    description: "Shode CLI - 强大的命令行工具",
+    author: "Shode Team",
+    enable_completion: true
+})
+
+// === 全局选项 ===
+
+app.option("verbose", "v", "详细输出", false)
+app.option("quiet", "q", "静默模式", false)
+app.option("config", "c", "配置文件路径", "")
+app.option("format", "f", "输出格式 (text, json, table)", "text")
+
+// === 命令：init - 初始化项目 ===
+
+app.command("init", "初始化新项目", func(args, options) {
+    // 检查参数
+    if len(args) == 0 {
+        log.error("请指定项目名称")
+        print("用法: shode-cli init <project-name> [options]")
+        return
+    }
+
+    project_name = args[0]
+
+    // 解析选项
+    template = options.template || "default"
+    description = options.description || ""
+    author = options.author || ""
+    git_init = options.git || false
+
+    // 检查目录是否存在
+    if fs.exists(project_name) {
+        log.error("目录 ${project_name} 已存在")
+        return
+    }
+
+    // 显示初始化信息
+    terminal.print_header("🚀 初始化项目")
+
+    print("项目名称: ${project_name}")
+    print("模板: ${template}")
+    print("")
+
+    // 创建项目目录
+    terminal.spinner("创建项目目录...", func() {
+        fs.mkdir(project_name)
+        fs.mkdir("${project_name}/src")
+        fs.mkdir("${project_name}/tests")
+        fs.mkdir("${project_name}/config")
+        fs.mkdir("${project_name}/docs")
+    })
+
+    // 创建主文件
+    terminal.spinner("创建主文件...", func() {
+        main_content = """# ${project_name}
+
+import { http, server } from "std"
+
+server.get("/", func(req, res) {
+    res.json({
+        message: "Hello from ${project_name}!"
+    })
+})
+
+server.listen(8080)
+"""
+        fs.write("${project_name}/main.shode", main_content)
+    })
+
+    // 创建配置文件
+    terminal.spinner("创建配置文件...", func() {
+        config_content = """# ${project_name} 配置
+
+server {
+    port: 8080
+    host: "0.0.0.0"
+}
+
+logging {
+    level: "info"
+}
+"""
+        fs.write("${project_name}/config/app.shode", config_content)
+    })
+
+    // 创建 README
+    terminal.spinner("创建 README...", func() {
+        readme_content = """# ${project_name}
+
+${description}
+
+## 快速开始
+
+\`\`\`bash
+shode run main.shode
+\`\`\`
+
+## 项目结构
+
+\`\`\`
+.
+├── main.shode    # 主程序
+├── src/          # 源代码
+├── tests/        # 测试
+├── config/       # 配置
+└── docs/         # 文档
+\`\`\`
+"""
+        fs.write("${project_name}/README.md", readme_content)
+    })
+
+    // 创建测试文件
+    terminal.spinner("创建测试文件...", func() {
+        test_content = """# 测试
+
+import { assert, assertEquals } from "testing"
+
+test("example test", func() {
+    result = 1 + 1
+    assertEquals(result, 2)
+})
+"""
+        fs.write("${project_name}/tests/main_test.shode", test_content)
+    })
+
+    // 初始化 Git
+    if git_init {
+        terminal.spinner("初始化 Git 仓库...", func() {
+            exec("git init ${project_name}")
+            fs.write("${project_name}/.gitignore", """# Shode
+*.shodec
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+""")
+        })
+    }
+
+    // 完成
+    terminal.print_success("✓ 项目 ${project_name} 创建成功！")
+    print("")
+    print("下一步:")
+    print("  cd ${project_name}")
+    print("  shode run main.shode")
+    print("")
+})
+
+// init 命令选项
+app.command("init").option("template", "t", "模板名称", "default")
+app.command("init").option("description", "d", "项目描述", "")
+app.command("init").option("author", "a", "作者名称", "")
+app.command("init").option("git", "g", "初始化 Git", false)
+
+// === 命令：build - 构建项目 ===
+
+app.command("build", "构建项目", func(args, options) {
+    output_dir = options.output || "dist"
+    minify = options.minify || false
+    watch = options.watch || false
+
+    terminal.print_header("🔨 构建项目")
+
+    // 检查项目文件
+    if !fs.exists("main.shode") {
+        log.error("未找到 main.shode 文件")
+        return
+    }
+
+    // 创建输出目录
+    fs.mkdir(output_dir)
+
+    // 构建步骤
+    steps = [
+        {name: "解析代码", fn: func() { /* 解析 AST */ }},
+        {name: "类型检查", fn: func() { /* 类型检查 */ }},
+        {name: "编译字节码", fn: func() { /* 编译 */ }},
+        {name: "优化代码", fn: func() { /* 优化 */ }},
+        {name: "生成输出", fn: func() {
+            fs.write("${output_dir}/app.shodec", "compiled code")
+        }}
+    ]
+
+    // 执行构建步骤
+    for step in steps {
+        terminal.spinner("${step.name}...", step.fn)
+    }
+
+    // 显示结果
+    terminal.print_success("✓ 构建完成！")
+    print("输出目录: ${output_dir}")
+    print("文件大小: ${fs.size("${output_dir}/app.shodec")} bytes")
+
+    // 监听模式
+    if watch {
+        print("\n👀 监听文件变化...")
+        fs.watch(".", func(events) {
+            for event in events {
+                if event.path.endswith(".shode") {
+                    print("\n📝 ${event.path} 已更改，重新构建...")
+                    app.run(["build"])
+                }
+            }
+        })
+    }
+})
+
+app.command("build").option("output", "o", "输出目录", "dist")
+app.command("build").option("minify", "m", "压缩输出", false)
+app.command("build").option("watch", "w", "监听模式", false)
+
+// === 命令：deploy - 部署项目 ===
+
+app.command("deploy", "部署项目", func(args, options) {
+    env = options.env || "development"
+    config_file = options.config || "config/deploy.shode"
+    dry_run = options.dry_run || false
+
+    terminal.print_header("🚀 部署项目")
+
+    // 加载部署配置
+    if fs.exists(config_file) {
+        deploy_config = config.load(config_file)
+    } else {
+        log.warn("未找到部署配置文件，使用默认配置")
+        deploy_config = {
+            provider: "docker",
+            registry: "localhost:5000",
+            namespace: "shode"
+        }
+    }
+
+    // 显示部署信息
+    print("环境: ${env}")
+    print("提供商: ${deploy_config.provider}")
+    print("镜像: ${deploy_config.registry}/${deploy_config.namespace}/app:${env}")
+    print("")
+
+    if dry_run {
+        print("⚠️  模拟运行模式")
+    }
+
+    // 部署步骤
+    steps = [
+        {name: "构建镜像", fn: func() {
+            if !dry_run {
+                exec("docker build -t app:${env} .")
+            }
+        }},
+        {name: "标记镜像", fn: func() {
+            if !dry_run {
+                exec("docker tag app:${env} ${deploy_config.registry}/${deploy_config.namespace}/app:${env}")
+            }
+        }},
+        {name: "推送镜像", fn: func() {
+            if !dry_run {
+                exec("docker push ${deploy_config.registry}/${deploy_config.namespace}/app:${env}")
+            }
+        }},
+        {name: "部署应用", fn: func() {
+            if !dry_run {
+                exec("kubectl set image deployment/app app=${deploy_config.registry}/${deploy_config.namespace}/app:${env}")
+            }
+        }}
+    ]
+
+    // 执行部署
+    for step in steps {
+        terminal.spinner("${step.name}...", step.fn)
+    }
+
+    terminal.print_success("✓ 部署完成！")
+})
+
+app.command("deploy").option("env", "e", "部署环境", "development")
+app.command("deploy").option("config", "c", "配置文件", "")
+app.command("deploy").option("dry-run", "d", "模拟运行", false)
+
+// === 命令：test - 运行测试 ===
+
+app.command("test", "运行测试", func(args, options) {
+    verbose = options.verbose || false
+    cover = options.cover || false
+    filter = options.filter || ""
+
+    terminal.print_header("🧪 运行测试")
+
+    // 查找测试文件
+    test_files = fs.glob("tests/**/*_test.shode")
+
+    if len(test_files) == 0 {
+        log.warn("未找到测试文件")
+        return
+    }
+
+    print("找到 ${len(test_files)} 个测试文件")
+    print("")
+
+    // 统计
+    total_tests = 0
+    passed_tests = 0
+    failed_tests = 0
+
+    // 运行测试
+    for test_file in test_files {
+        print("运行: ${test_file}")
+
+        // 加载并运行测试
+        test_module = require(test_file)
+
+        for test_name in test_module.tests {
+            if filter != "" && !test_name.contains(filter) {
+                continue
+            }
+
+            total_tests++
+
+            try {
+                test_module.tests[test_name]()
+                if verbose {
+                    terminal.print_checkmark("  ✓ ${test_name}")
+                }
+                passed_tests++
+            } catch e {
+                terminal.print_xmark("  ✗ ${test_name}")
+                if verbose {
+                    print("    错误: ${e.message}")
+                }
+                failed_tests++
+            }
+        }
+    }
+
+    // 显示结果
+    print("")
+    terminal.print_header("测试结果")
+    print("总计: ${total_tests}")
+    terminal.print_success("通过: ${passed_tests}")
+    if failed_tests > 0 {
+        terminal.print_error("失败: ${failed_tests}")
+    }
+
+    if cover {
+        // 显示覆盖率
+        coverage = calculate_coverage()
+        print("\n覆盖率: ${coverage}%")
+    }
+
+    // 返回退出码
+    if failed_tests > 0 {
+        exit(1)
+    }
+})
+
+app.command("test").option("verbose", "v", "详细输出", false)
+app.command("test").option("cover", "c", "显示覆盖率", false)
+app.command("test").option("filter", "f", "过滤测试", "")
+
+// === 命令：list - 列出资源 ===
+
+app.command("list", "列出资源", func(args, options) {
+    resource_type = args[0] || "all"
+    format = options.format || "table"
+
+    // 数据
+    resources = [
+        {name: "my-project", status: "running", version: "1.0.0", created: "2026-01-15"},
+        {name: "api-service", status: "stopped", version: "2.1.0", created: "2026-01-14"},
+        {name: "web-app", status: "running", version: "1.5.2", created: "2026-01-13"}
+    ]
+
+    // 格式化输出
+    if format == "table" {
+        terminal.table({
+            headers: ["NAME", "STATUS", "VERSION", "CREATED"],
+            rows: resources.map(func(r) {
+                return [r.name, r.status, r.version, r.created]
+            })
+        })
+    } else if format == "json" {
+        print(json.stringify(resources, true, 2))
+    } else {
+        for r in resources {
+            print("${r.name}\t${r.status}\t${r.version}\t${r.created}")
+        }
+    }
+})
+
+app.command("list").option("format", "f", "输出格式", "table")
+
+// === 命令：version - 显示版本 ===
+
+app.command("version", "显示版本信息", func(args, options) {
+    print("Shode CLI v${VERSION}")
+    print("")
+    print("构建信息:")
+    print("  Go版本: ${runtime.go_version()}")
+    print("  平台: ${runtime.os()}/${runtime.arch()}")
+    print("  编译时间: ${BUILD_TIME || 'unknown'}")
+})
+
+// === 命令：completion - 生成自动补全脚本 ===
+
+app.command("completion", "生成自动补全脚本", func(args, options) {
+    shell = args[0] || "bash"
+
+    if shell == "bash" {
+        print("""# Bash completion for shode-cli
+_shode_cli_completion() {
+    local cur prev commands
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="init build deploy test list version completion"
+
+    if [[ ${COMP_CWORD} -eq 1 ]] ; then
+        COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+        return 0
+    fi
+
+    case "${prev}" in
+        init)
+            COMPREPLY=( $(compgen -f -- ${cur}) )
+            ;;
+        build|deploy|test)
+            COMPREPLY=( $(compgen -W "--help --verbose --quiet" -- ${cur}) )
+            ;;
+        *)
+            ;;
+    esac
+}
+
+complete -F _shode_cli_completion shode-cli""")
+    } else if shell == "zsh" {
+        print("""#compdef shode-cli
+
+_shode-cli() {
+    local -a commands
+    commands=(
+        'init:Initialize a new project'
+        'build:Build the project'
+        'deploy:Deploy the project'
+        'test:Run tests'
+        'list:List resources'
+        'version:Show version'
+        'completion:Generate completion script'
+    )
+
+    if (( CURRENT == 2 )); then
+        _describe 'command' commands
+    elif (( CURRENT == 3 )); then
+        case ${words[2]} in
+            init)
+                _files
+                ;;
+            *)
+                _arguments \
+                    '--verbose[Verbose output]' \
+                    '--quiet[Quiet mode]' \
+                    '--config[Config file]'
+                ;;
+        esac
+    fi
+}
+
+_shode-cli "$@" """)
+    } else {
+        log.error("不支持的 shell: ${shell}")
+        print("支持的 shell: bash, zsh")
+        exit(1)
+    }
+})
+
+// === 运行应用 ===
+
+try {
+    app.run()
+} catch e {
+    log.error("错误: ${e.message}")
+    if options.verbose {
+        print(e.stack)
+    }
+    exit(1)
+}

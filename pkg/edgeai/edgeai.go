@@ -236,15 +236,17 @@ func (ei *EdgeInference) Infer(ctx context.Context, modelID string, input []floa
 
 	// 检查缓存
 	hash := hashInput(input)
-	if cache, exists := ei.cache[modelID+":"+hash]; exists {
-		cache.HitCount++
-		return &InferenceResult{
-			ModelID:   modelID,
-			Output:    cache.Output,
-			Latency:   1 * time.Millisecond,
-			Cached:    true,
-			Timestamp: time.Now(),
-		}, nil
+	if modelCache, exists := ei.cache[modelID]; exists {
+		if entry, exists := modelCache.Entries[hash]; exists {
+			entry.HitCount++
+			return &InferenceResult{
+				ModelID:   modelID,
+				Output:    entry.Output,
+				Latency:   1 * time.Millisecond,
+				Cached:    true,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 
 	// 推理
@@ -257,7 +259,14 @@ func (ei *EdgeInference) Infer(ctx context.Context, modelID string, input []floa
 	}
 
 	// 缓存结果
-	ei.cache[modelID+":"+hash] = &CacheEntry{
+	modelCache, exists := ei.cache[modelID]
+	if !exists {
+		modelCache = &InferenceCache{
+			Entries: make(map[string]*CacheEntry),
+		}
+		ei.cache[modelID] = modelCache
+	}
+	modelCache.Entries[hash] = &CacheEntry{
 		InputHash: hash,
 		Output:    result.Output,
 		HitCount:  0,
@@ -336,12 +345,12 @@ func (mv *ModelVersioning) Rollout(ctx context.Context, modelID, version string,
 	defer mv.mu.Unlock()
 
 	key := modelID + ":" + version
-	version, exists := mv.versions[key]
+	modelVer, exists := mv.versions[key]
 	if !exists {
 		return fmt.Errorf("version not found: %s", key)
 	}
 
-	version.Rollout = percentage
+	modelVer.Rollout = percentage
 
 	return nil
 }

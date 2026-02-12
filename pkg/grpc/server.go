@@ -46,7 +46,7 @@ func (s *Server) RegisterService(name string, service interface{}) error {
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	listener, err := net.Listen("tcp", s.address)
+	_, err := net.Listen("tcp", s.address)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
@@ -258,14 +258,14 @@ func (cg *CodeGenerator) GenerateGo() error {
 // ProtoGenerator Proto 文件生成器
 type ProtoGenerator struct {
 	serviceName string
-	package     string
+	packageName string
 }
 
 // NewProtoGenerator 创建 Proto 生成器
 func NewProtoGenerator(serviceName, pkg string) *ProtoGenerator {
 	return &ProtoGenerator{
 		serviceName: serviceName,
-		package:     pkg,
+		packageName: pkg,
 	}
 }
 
@@ -306,7 +306,7 @@ message Request3 {
 message Response3 {
   int32 count = 1;
 }
-`, pg.package, pg.package, pg.serviceName)
+`, pg.packageName, pg.packageName, pg.serviceName)
 }
 
 // Gateway gRPC-Gateway

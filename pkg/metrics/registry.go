@@ -4,21 +4,18 @@ package metrics
 import (
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // MetricType 指标类型
 type MetricType int
 
 const (
-	Counter MetricType = iota
-	Gauge
-	Histogram
-	Summary
+	CounterType MetricType = iota
+	GaugeType
+	HistogramType
+	SummaryType
 )
 
 // Metric 指标接口
@@ -68,7 +65,7 @@ func (c *Counter) Name() string {
 
 // Type 返回指标类型
 func (c *Counter) Type() MetricType {
-	return Counter
+	return CounterType
 }
 
 // Help 返回帮助信息
@@ -130,7 +127,7 @@ func (g *Gauge) Name() string {
 
 // Type 返回指标类型
 func (g *Gauge) Type() MetricType {
-	return Gauge
+	return GaugeType
 }
 
 // Help 返回帮助信息
@@ -178,7 +175,7 @@ func (h *Histogram) Name() string {
 
 // Type 返回指标类型
 func (h *Histogram) Type() MetricType {
-	return Histogram
+	return HistogramType
 }
 
 // Help 返回帮助信息
@@ -329,5 +326,4 @@ func init() {
 	DefaultRegistry.Register(DefaultMetrics.HTTPRequestsTotal)
 	DefaultRegistry.Register(DefaultMetrics.HTTPRequestDuration)
 	DefaultRegistry.Register(DefaultMetrics.ActiveConnections)
-	DefaultMetrics.MemoryUsage
 }
