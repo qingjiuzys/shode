@@ -19,6 +19,13 @@ type Version struct {
 func Parse(version string) (*Version, error) {
 	v := &Version{}
 
+	// 处理通配符版本（如 1.x, 2.*）
+	if strings.Contains(version, "x") || strings.Contains(version, "*") {
+		// 将通配符转换为 0，用于比较
+		version = strings.ReplaceAll(version, "x", "0")
+		version = strings.ReplaceAll(version, "*", "0")
+	}
+
 	// 分离版本号和构建信息
 	parts := strings.SplitN(version, "+", 2)
 	if len(parts) == 2 {
@@ -113,6 +120,15 @@ func (v *Version) LessThan(other *Version) bool {
 // Equals 检查是否相等
 func (v *Version) Equals(other *Version) bool {
 	return v.Compare(other) == 0
+}
+
+// MustParseVersion 解析版本字符串，失败时 panic
+func MustParseVersion(version string) *Version {
+	v, err := Parse(version)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // ParseVersion 解析版本字符串（别名）

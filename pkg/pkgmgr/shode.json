@@ -1,7 +1,4 @@
 {
-  "name": "test-pkg",
-  "version": "1.0.0",
-  "scripts": {
-    "test": "echo 'test'"
-  }
+  "name": "test-package",
+  "version": "1.0.0"
 }
