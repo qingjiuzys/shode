@@ -276,12 +276,10 @@ func TestV051_GzipCompression(t *testing.T) {
 	ctx := context.Background()
 
 	// Start server with gzip enabled
-	// Note: Using RegisterStaticRouteAdvanced for proper gzip support
-	// Parameters: path, directory, indexFiles, directoryBrowse, cacheControl, enableGzip, spaFallback
-	// IMPORTANT: Register routes BEFORE starting server for proper initialization
+	// Note: Changed to use RegisterStaticRouteAdvanced for proper gzip support
 	scriptContent := fmt.Sprintf(`
-RegisterStaticRouteAdvanced "/" "%s" "true" "false" "" "true" ""
 StartHTTPServer "9191"
+RegisterStaticRouteAdvanced "/" ./public true false false ""
 Println "Server started"
 `, tmpDir)
 
