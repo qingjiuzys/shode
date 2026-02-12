@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -62,7 +63,7 @@ type PackageInfo struct {
 //	err := pm.Init("my-package", "1.0.0")
 func NewPackageManager() *PackageManager {
 	// Initialize registry client with default config
-	registryClient, _ := registry.NewClient(nil)
+	registryClient, _ := registry.NewClient("")
 
 	return &PackageManager{
 		envManager:     environment.NewEnvironmentManager(),
@@ -246,7 +247,7 @@ func (pm *PackageManager) installPackageFromRegistry(name, version, targetDir st
 	}
 
 	// Install package using registry client
-	if err := pm.registryClient.Install(name, version, targetDir); err != nil {
+	if err := pm.registryClient.Install(context.Background(), name, version, targetDir); err != nil {
 		return err
 	}
 
@@ -351,7 +352,7 @@ func (pm *PackageManager) Search(query string) ([]*registry.SearchResult, error)
 		Limit: 20,
 	}
 
-	return pm.registryClient.Search(searchQuery)
+	return pm.registryClient.Search(context.Background(), searchQuery)
 }
 
 // Publish publishes the current package to the registry
@@ -385,7 +386,7 @@ func (pm *PackageManager) Publish() error {
 		Checksum: checksum,
 	}
 
-	return pm.registryClient.Publish(req)
+	return pm.registryClient.Publish(context.Background(), req)
 }
 
 // GetRegistryClient returns the registry client
@@ -678,7 +679,7 @@ func (pm *PackageManager) FindLatestVersion(name, constraint string) (string, er
 	}
 
 	// Get package metadata from registry
-	metadata, err := pm.registryClient.GetPackage(name)
+	metadata, err := pm.registryClient.GetPackage(context.Background(), name)
 	if err != nil {
 		return "", err
 	}
@@ -714,7 +715,7 @@ func (pm *PackageManager) FindAbsoluteLatest(name string) string {
 		return ""
 	}
 
-	metadata, err := pm.registryClient.GetPackage(name)
+	metadata, err := pm.registryClient.GetPackage(context.Background(), name)
 	if err != nil {
 		return ""
 	}
@@ -729,7 +730,7 @@ func (pm *PackageManager) ShowPackageInfo(name string) error {
 		return fmt.Errorf("registry client not available")
 	}
 
-	metadata, err := pm.registryClient.GetPackage(name)
+	metadata, err := pm.registryClient.GetPackage(context.Background(), name)
 	if err != nil {
 		return err
 	}
@@ -846,7 +847,7 @@ func (pm *PackageManager) CheckOutdated() ([]*OutdatedPackage, error) {
 
 	// Check production dependencies
 	for name, currentVersion := range pm.config.Dependencies {
-		metadata, err := pm.registryClient.GetPackage(name)
+		metadata, err := pm.registryClient.GetPackage(context.Background(), name)
 		if err != nil {
 			continue
 		}
@@ -863,7 +864,7 @@ func (pm *PackageManager) CheckOutdated() ([]*OutdatedPackage, error) {
 
 	// Check dev dependencies
 	for name, currentVersion := range pm.config.DevDependencies {
-		metadata, err := pm.registryClient.GetPackage(name)
+		metadata, err := pm.registryClient.GetPackage(context.Background(), name)
 		if err != nil {
 			continue
 		}

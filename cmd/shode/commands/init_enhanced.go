@@ -67,8 +67,8 @@ Examples:
 			}
 
 			// 创建生成器并生成项目
-			gen := scaffold.NewGenerator()
-			if err := gen.Generate(projectName, templateType, options); err != nil {
+			gen := scaffold.NewGenerator(templateType)
+			if err := gen.Generate(projectName, options); err != nil {
 				return err
 			}
 
@@ -88,14 +88,14 @@ Examples:
 
 // listTemplatesCmd 列出所有可用模板
 func listTemplatesCmd() error {
-	gen := scaffold.NewGenerator()
+	gen := scaffold.NewGenerator("basic")
 	templates := gen.ListTemplates()
 
 	fmt.Println("可用的项目模板:")
 	fmt.Println()
 
 	for _, tmpl := range templates {
-		fmt.Printf("  📦 %-15s %s\n", tmpl.Name, tmpl.Description)
+		fmt.Printf("  📦 %-20s\n", tmpl)
 	}
 
 	fmt.Println()

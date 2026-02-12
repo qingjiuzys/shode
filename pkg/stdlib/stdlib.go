@@ -2081,15 +2081,15 @@ func (sl *StdLib) UseMiddleware(name string) error {
 	var mw middleware.Middleware
 	switch name {
 	case "cors":
-		mw = middleware.NewCORSMiddleware(nil)
+		mw = middleware.NewCORSMiddleware([]string{"*"})
 	case "rate_limit":
-		mw = middleware.NewRateLimitMiddleware(nil)
+		mw = middleware.NewRateLimitMiddleware(100, 60)
 	case "logging":
-		mw = middleware.NewLoggingMiddleware(nil)
+		mw = middleware.NewLoggingMiddleware()
 	case "recovery":
-		mw = middleware.NewRecoveryMiddleware(nil)
+		mw = middleware.NewRecoveryMiddleware()
 	case "request_id":
-		mw = middleware.NewRequestIDMiddleware("")
+		mw = middleware.NewRequestIDMiddleware()
 	default:
 		return fmt.Errorf("unknown middleware: %s", name)
 	}
@@ -2112,7 +2112,8 @@ func (sl *StdLib) RemoveMiddleware(name string) error {
 		return fmt.Errorf("HTTP server not started")
 	}
 
-	sl.middlewareManager.Remove(name)
+	// Remove last middleware by default
+	sl.middlewareManager.Remove(-1)
 	return nil
 }
 
