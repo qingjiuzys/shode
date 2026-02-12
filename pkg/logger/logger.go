@@ -20,6 +20,7 @@
 package logger
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -301,9 +302,35 @@ func (l *Logger) rotateLogFile() error {
 	return nil
 }
 
-// compressLog 压缩日志文件
-func (l *Logger) compressLog(path string) {
-	// TODO: 实现 gzip 压缩
+// compressLog 使用 gzip 压缩日志文件
+func (l *Logger) compressLog(path string) error {
+	// 读取原文件
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read log file: %w", err)
+	}
+
+	// 创建压缩文件
+	compressedPath := path + ".gz"
+	f, err := os.OpenFile(compressedPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create compressed log file: %w", err)
+	}
+	defer f.Close()
+
+	// 使用 gzip 压缩
+	gw := gzip.NewWriter(f)
+	if _, err := gw.Write(data); err != nil {
+		return fmt.Errorf("failed to compress log file: %w", err)
+	}
+	gw.Close()
+
+	// 删除原文件
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to remove old log file: %w", err)
+	}
+
+	return nil
 }
 
 // cleanupOldLogs 清理旧日志

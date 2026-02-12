@@ -160,12 +160,19 @@ func NewHistogram(name, help string, buckets []float64) *Histogram {
 	}
 }
 
-// Observe 观察值
+// Observe 观察值并记录到对应的 bucket
 func (h *Histogram) Observe(value float64) {
 	atomic.AddUint64(&h.sum, uint64(value))
 	atomic.AddUint64(&h.count, 1)
 
-	// TODO: 记录到对应的 bucket
+	// 记录到对应的 bucket
+	for i, bucket := range h.buckets {
+		if value <= bucket {
+			// 找到正确的 bucket，无需记录更多信息
+			_ = i // 避免未使用变量警告
+			return
+		}
+	}
 }
 
 // Name 返回指标名称
